@@ -16,6 +16,11 @@ fileprivate struct FramedLayerTransform {
     }
 }
 
+protocol SourceFrameProvider: AnyObject {
+    func prepare(asset: AVAsset, trimStart: Double, trimEnd: Double) async throws
+    func frame(at sourceTime: Double) throws -> CVPixelBuffer
+}
+
 final class ExportRenderer: ObservableObject {
     @Published var progress: Double = 0
     @Published var isRendering = false
@@ -36,22 +41,17 @@ final class ExportRenderer: ObservableObject {
         }
 
         let asset = AVURLAsset(url: session.rawVideoURL)
-        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+        guard try await asset.loadTracks(withMediaType: .video).first != nil else {
             throw RecorderError.message("The raw recording does not contain a video track.")
         }
         _ = try await asset.load(.duration)
         let outputURL = try Self.makeRenderedOutputURL(for: session, outputDirectory: outputDirectory)
 
-        let reader = try AVAssetReader(asset: asset)
-        let readerOutput = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ])
-        guard reader.canAdd(readerOutput) else {
-            throw RecorderError.message("Could not read frames from the raw recording.")
-        }
-        reader.add(readerOutput)
-
-        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let trimStart = max(0, session.timelineContentStart)
+        let trimEnd = max(trimStart + 0.1, session.timelineContentEnd)
+        let visibleDuration = max(0.1, trimEnd - trimStart)
+        let fps = max(1, session.settings.frameRate)
+        let frameCount = max(1, Int(ceil(visibleDuration * Double(fps))))
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         let bitrate = Int(session.settings.bitrateMbps * 1_000_000)
@@ -59,87 +59,77 @@ final class ExportRenderer: ObservableObject {
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: session.width,
             AVVideoHeightKey: session.height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+            ],
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitrate,
                 AVVideoExpectedSourceFrameRateKey: session.settings.frameRate,
+                AVVideoMaxKeyFrameIntervalKey: fps,
+                AVVideoAllowFrameReorderingKey: false,
+                AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
             ]
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
+        input.expectsMediaDataInRealTime = false
+        input.mediaTimeScale = CMTimeScale(fps)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: session.width,
-            kCVPixelBufferHeightKey as String: session.height
+            kCVPixelBufferHeightKey as String: session.height,
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:]
         ])
         guard writer.canAdd(input) else {
             throw RecorderError.message("Could not create the export writer.")
         }
         writer.add(input)
 
-        var audioCopies: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)] = []
-        for audioTrack in audioTracks {
-            let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-            guard reader.canAdd(audioOutput) else { continue }
-            reader.add(audioOutput)
+        let audioCopies = try await makeAudioCopies(
+            asset: asset,
+            writer: writer,
+            trimStart: trimStart,
+            duration: visibleDuration
+        )
 
-            let formatDescriptions = try await audioTrack.load(.formatDescriptions)
-            let audioInput = AVAssetWriterInput(
-                mediaType: .audio,
-                outputSettings: nil,
-                sourceFormatHint: formatDescriptions.first
-            )
-            guard writer.canAdd(audioInput) else { continue }
-            writer.add(audioInput)
-            audioCopies.append((audioOutput, audioInput))
-        }
+        let frameProvider = SequentialAssetFrameProvider()
+        try await frameProvider.prepare(asset: asset, trimStart: trimStart, trimEnd: trimEnd)
 
-        guard reader.startReading() else { throw reader.error ?? RecorderError.message("Could not start reading the recording.") }
         guard writer.startWriting() else { throw writer.error ?? RecorderError.message("Could not start export writing.") }
         writer.startSession(atSourceTime: .zero)
-
-        let polish = PolishPipeline(session: session, context: context)
-
-        let t0 = session.timelineContentStart
-        let t1 = session.timelineContentEnd
-        let visibleDuration = max(0.1, t1 - t0)
-
-        while let sample = readerOutput.copyNextSampleBuffer() {
-            while !input.isReadyForMoreMediaData {
-                try await Task.sleep(nanoseconds: 4_000_000)
-            }
-            guard let imageBuffer = CMSampleBufferGetImageBuffer(sample),
-                  let pool = adaptor.pixelBufferPool
-            else { continue }
-
-            let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-            let assetSeconds = CMTimeGetSeconds(pts)
-            guard assetSeconds >= t0 - 1e-4 && assetSeconds <= t1 + 1e-2 else { continue }
-
-            let processed = process(
-                imageBuffer: imageBuffer,
-                time: assetSeconds,
-                session: session,
-                polish: polish
-            )
-
-            var outBuffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuffer)
-            guard let outBuffer else { continue }
-            context.render(processed, to: outBuffer)
-            let outPTS = CMTime(seconds: assetSeconds - t0, preferredTimescale: max(pts.timescale, 600))
-            adaptor.append(outBuffer, withPresentationTime: outPTS)
-
-            let current = min(1, (assetSeconds - t0) / visibleDuration)
-            await MainActor.run {
-                self.progress = current
-                self.status = "Rendering \(Int(current * 100))%"
-            }
+        guard adaptor.pixelBufferPool != nil else {
+            throw RecorderError.message("Could not create the export pixel buffer pool.")
         }
 
-        input.markAsFinished()
-        try await copyAudioTracks(audioCopies, session: session)
+        let polish = PolishPipeline(session: session, context: context)
+        try await writeVideoFrames(
+            frameProvider: frameProvider,
+            adaptor: adaptor,
+            input: input,
+            writer: writer,
+            polish: polish,
+            session: session,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            fps: fps,
+            frameCount: frameCount
+        )
+        try await copyAudioTracks(audioCopies, trimStart: trimStart, duration: visibleDuration, writer: writer)
+        writer.endSession(atSourceTime: CMTime(seconds: visibleDuration, preferredTimescale: 600))
         await writer.finishWriting()
-        if let error = writer.error { throw error }
+        switch writer.status {
+        case .completed:
+            break
+        case .failed, .cancelled:
+            throw writer.error ?? RecorderError.message("Export writing did not complete.")
+        default:
+            if let error = writer.error { throw error }
+        }
         await MainActor.run {
             self.progress = 1
             self.status = "Exported \(outputURL.lastPathComponent)"
@@ -147,26 +137,296 @@ final class ExportRenderer: ObservableObject {
         return outputURL
     }
 
-    private func copyAudioTracks(
-        _ audioCopies: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)],
-        session: RecordingSession
-    ) async throws {
-        let t0 = session.timelineContentStart
-        let t1 = session.timelineContentEnd
-        for copy in audioCopies {
-            while let sample = copy.output.copyNextSampleBuffer() {
-                while !copy.input.isReadyForMoreMediaData {
-                    try await Task.sleep(nanoseconds: 4_000_000)
+    private struct AudioCopy {
+        let reader: AVAssetReader
+        let output: AVAssetReaderTrackOutput
+        let input: AVAssetWriterInput
+    }
+
+    private final class VideoFrameWritePump: @unchecked Sendable {
+        let renderer: ExportRenderer
+        let frameProvider: SourceFrameProvider
+        let adaptor: AVAssetWriterInputPixelBufferAdaptor
+        let input: AVAssetWriterInput
+        let writer: AVAssetWriter
+        let polish: PolishPipeline
+        let session: RecordingSession
+        let trimStart: Double
+        let trimEnd: Double
+        let fps: Int
+        let frameCount: Int
+        let pool: CVPixelBufferPool
+        let continuation: CheckedContinuation<Void, Error>
+        var frameIndex = 0
+        var didFinish = false
+
+        init(
+            renderer: ExportRenderer,
+            frameProvider: SourceFrameProvider,
+            adaptor: AVAssetWriterInputPixelBufferAdaptor,
+            input: AVAssetWriterInput,
+            writer: AVAssetWriter,
+            polish: PolishPipeline,
+            session: RecordingSession,
+            trimStart: Double,
+            trimEnd: Double,
+            fps: Int,
+            frameCount: Int,
+            pool: CVPixelBufferPool,
+            continuation: CheckedContinuation<Void, Error>
+        ) {
+            self.renderer = renderer
+            self.frameProvider = frameProvider
+            self.adaptor = adaptor
+            self.input = input
+            self.writer = writer
+            self.polish = polish
+            self.session = session
+            self.trimStart = trimStart
+            self.trimEnd = trimEnd
+            self.fps = fps
+            self.frameCount = frameCount
+            self.pool = pool
+            self.continuation = continuation
+        }
+
+        func pump() {
+            do {
+                while input.isReadyForMoreMediaData && frameIndex < frameCount {
+                    try ExportRenderer.checkWriter(writer)
+                    let outputTime = Double(frameIndex) / Double(fps)
+                    let sourceTime = min(trimEnd, trimStart + outputTime)
+                    let sourceFrame = try frameProvider.frame(at: sourceTime)
+                    let frameState = RenderFrameStateBuilder.make(
+                        session: session,
+                        outputTime: outputTime,
+                        sourceTime: sourceTime,
+                        canvasSize: CGSize(width: session.width, height: session.height)
+                    )
+                    let processed = renderer.renderFrame(
+                        imageBuffer: sourceFrame,
+                        state: frameState,
+                        session: session,
+                        polish: polish,
+                        trimStart: trimStart,
+                        trimEnd: trimEnd,
+                        fps: fps
+                    )
+
+                    var outBuffer: CVPixelBuffer?
+                    let bufferStatus = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuffer)
+                    guard bufferStatus == kCVReturnSuccess, let outBuffer else {
+                        throw RecorderError.message("Could not allocate an export video frame.")
+                    }
+                    renderer.context.render(processed, to: outBuffer)
+
+                    let outputPTS = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(fps))
+                    guard adaptor.append(outBuffer, withPresentationTime: outputPTS) else {
+                        throw writer.error ?? RecorderError.message("Could not append video frame at \(outputPTS.seconds)s.")
+                    }
+
+                    frameIndex += 1
+                    let current = min(1, Double(frameIndex) / Double(max(1, frameCount)))
+                    Task { @MainActor in
+                        self.renderer.progress = current
+                        self.renderer.status = "Rendering \(Int(current * 100))%"
+                    }
                 }
-                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-                let sec = CMTimeGetSeconds(pts)
-                guard sec >= t0 - 1e-3 && sec <= t1 + 1e-2 else { continue }
-                let newPTS = CMTimeSubtract(pts, CMTime(seconds: t0, preferredTimescale: max(pts.timescale, 6000)))
-                if let rebased = Self.sampleBufferRetimedToPresentation(sample, presentation: newPTS) {
-                    copy.input.append(rebased)
+
+                if frameIndex >= frameCount {
+                    finish(.success(()))
                 }
+            } catch {
+                finish(.failure(error))
             }
+        }
+
+        private func finish(_ result: Result<Void, Error>) {
+            guard !didFinish else { return }
+            didFinish = true
+            input.markAsFinished()
+            switch result {
+            case .success:
+                continuation.resume()
+            case .failure(let error):
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private final class AudioWritePump: @unchecked Sendable {
+        let copy: AudioCopy
+        let trimStart: Double
+        let duration: Double
+        let writer: AVAssetWriter
+        let continuation: CheckedContinuation<Void, Error>
+        var didFinish = false
+
+        init(copy: AudioCopy, trimStart: Double, duration: Double, writer: AVAssetWriter, continuation: CheckedContinuation<Void, Error>) {
+            self.copy = copy
+            self.trimStart = trimStart
+            self.duration = duration
+            self.writer = writer
+            self.continuation = continuation
+        }
+
+        func pump() {
+            do {
+                while copy.input.isReadyForMoreMediaData {
+                    try ExportRenderer.checkWriter(writer)
+                    guard let sample = copy.output.copyNextSampleBuffer() else {
+                        if copy.reader.status == .failed {
+                            throw copy.reader.error ?? RecorderError.message("Audio export failed while reading.")
+                        }
+                        finish(.success(()))
+                        return
+                    }
+
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+                    let shifted = CMTimeSubtract(
+                        pts,
+                        CMTime(seconds: trimStart, preferredTimescale: max(pts.timescale, 6000))
+                    )
+                    let shiftedSeconds = CMTimeGetSeconds(shifted)
+                    guard shiftedSeconds >= -0.01 else { continue }
+                    guard shiftedSeconds <= duration + 0.01 else {
+                        finish(.success(()))
+                        return
+                    }
+                    let presentation = shiftedSeconds < 0 ? .zero : shifted
+                    guard let rebased = ExportRenderer.sampleBufferRetimedToPresentation(sample, presentation: presentation) else {
+                        throw RecorderError.message("Could not retime an audio sample for export.")
+                    }
+                    guard copy.input.append(rebased) else {
+                        throw writer.error ?? RecorderError.message("Could not append audio sample at \(presentation.seconds)s.")
+                    }
+                }
+            } catch {
+                finish(.failure(error))
+            }
+        }
+
+        private func finish(_ result: Result<Void, Error>) {
+            guard !didFinish else { return }
+            didFinish = true
             copy.input.markAsFinished()
+            switch result {
+            case .success:
+                continuation.resume()
+            case .failure(let error):
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private func makeAudioCopies(
+        asset: AVAsset,
+        writer: AVAssetWriter,
+        trimStart: Double,
+        duration: Double
+    ) async throws -> [AudioCopy] {
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let range = CMTimeRange(
+            start: CMTime(seconds: trimStart, preferredTimescale: 600),
+            duration: CMTime(seconds: duration, preferredTimescale: 600)
+        )
+        var copies: [AudioCopy] = []
+        for audioTrack in audioTracks {
+            let reader = try AVAssetReader(asset: asset)
+            reader.timeRange = range
+            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+            output.alwaysCopiesSampleData = false
+            guard reader.canAdd(output) else { continue }
+            reader.add(output)
+
+            let formatDescriptions = try await audioTrack.load(.formatDescriptions)
+            let input = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: nil,
+                sourceFormatHint: formatDescriptions.first
+            )
+            input.expectsMediaDataInRealTime = false
+            guard writer.canAdd(input) else { continue }
+            writer.add(input)
+            copies.append(AudioCopy(reader: reader, output: output, input: input))
+        }
+        return copies
+    }
+
+    private func writeVideoFrames(
+        frameProvider: SourceFrameProvider,
+        adaptor: AVAssetWriterInputPixelBufferAdaptor,
+        input: AVAssetWriterInput,
+        writer: AVAssetWriter,
+        polish: PolishPipeline,
+        session: RecordingSession,
+        trimStart: Double,
+        trimEnd: Double,
+        fps: Int,
+        frameCount: Int
+    ) async throws {
+        guard let pool = adaptor.pixelBufferPool else {
+            throw RecorderError.message("Could not create the export pixel buffer pool.")
+        }
+
+        let queue = DispatchQueue(label: "FocusRecorder.Export.VideoWriter", qos: .userInitiated)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let pump = VideoFrameWritePump(
+                renderer: self,
+                frameProvider: frameProvider,
+                adaptor: adaptor,
+                input: input,
+                writer: writer,
+                polish: polish,
+                session: session,
+                trimStart: trimStart,
+                trimEnd: trimEnd,
+                fps: fps,
+                frameCount: frameCount,
+                pool: pool,
+                continuation: continuation
+            )
+            input.requestMediaDataWhenReady(on: queue) {
+                pump.pump()
+            }
+        }
+
+        try Self.checkWriter(writer)
+    }
+
+    private func copyAudioTracks(
+        _ audioCopies: [AudioCopy],
+        trimStart: Double,
+        duration: Double,
+        writer: AVAssetWriter
+    ) async throws {
+        for copy in audioCopies {
+            try await copyAudioTrack(copy, trimStart: trimStart, duration: duration, writer: writer)
+        }
+    }
+
+    private func copyAudioTrack(
+        _ copy: AudioCopy,
+        trimStart: Double,
+        duration: Double,
+        writer: AVAssetWriter
+    ) async throws {
+        guard copy.reader.startReading() else {
+            throw copy.reader.error ?? RecorderError.message("Could not start reading audio for export.")
+        }
+
+        let queue = DispatchQueue(label: "FocusRecorder.Export.AudioWriter", qos: .userInitiated)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let pump = AudioWritePump(
+                copy: copy,
+                trimStart: trimStart,
+                duration: duration,
+                writer: writer,
+                continuation: continuation
+            )
+            copy.input.requestMediaDataWhenReady(on: queue) {
+                pump.pump()
+            }
         }
     }
 
@@ -188,11 +448,11 @@ final class ExportRenderer: ObservableObject {
     }
 
     func previewImage(session: RecordingSession, time: Double) async throws -> NSImage {
-        let output = try await previewCGImage(session: session, time: time, quality: .previewHighFidelity)
+        let output = try await previewCGImage(session: session, time: time)
         return NSImage(cgImage: output, size: NSSize(width: session.width, height: session.height))
     }
 
-    func previewCGImage(session: RecordingSession, time: Double, quality: RenderQuality) async throws -> CGImage {
+    func previewCGImage(session: RecordingSession, time: Double) async throws -> CGImage {
         let asset = AVURLAsset(url: session.rawVideoURL)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
@@ -207,18 +467,21 @@ final class ExportRenderer: ObservableObject {
             ))
             .cropped(to: CGRect(x: 0, y: 0, width: session.width, height: session.height))
         let polish = PolishPipeline(session: session, context: context)
-        var screen = normalized
-        if session.edit.showClickRipples {
-            for click in session.clicks {
-                let elapsed = time - click.time
-                guard elapsed >= 0, elapsed < ExportRippleParams.window else { continue }
-                let radius = ExportRippleParams.radius(forElapsed: elapsed)
-                let alpha = ExportRippleParams.alpha(forElapsed: elapsed)
-                screen = polish.compositeRipple(over: screen, at: CGPoint(x: click.x, y: click.y), radius: radius, alpha: alpha)
-                    .cropped(to: CGRect(x: 0, y: 0, width: session.width, height: session.height))
-            }
-        }
-        let processed = applyFramingWithMotionBlurIfNeeded(to: screen, time: time, session: session, polish: polish)
+        let frameState = RenderFrameStateBuilder.make(
+            session: session,
+            outputTime: max(0, time - session.timelineContentStart),
+            sourceTime: time,
+            canvasSize: CGSize(width: session.width, height: session.height)
+        )
+        let processed = renderFrame(
+            sourceImage: normalized,
+            state: frameState,
+            session: session,
+            polish: polish,
+            trimStart: session.timelineContentStart,
+            trimEnd: session.timelineContentEnd,
+            fps: session.settings.frameRate
+        )
         guard let output = context.createCGImage(processed, from: CGRect(x: 0, y: 0, width: session.width, height: session.height)) else {
             throw RecorderError.message("Could not render preview frame.")
         }
@@ -237,147 +500,156 @@ final class ExportRenderer: ObservableObject {
         }
     }
 
-    private func process(imageBuffer: CVPixelBuffer, time: Double, session: RecordingSession, polish: PolishPipeline) -> CIImage {
+    private func renderFrame(
+        imageBuffer: CVPixelBuffer,
+        state: RenderFrameState,
+        session: RecordingSession,
+        polish: PolishPipeline,
+        trimStart: Double,
+        trimEnd: Double,
+        fps: Int
+    ) -> CIImage {
         let frameRect = CGRect(x: 0, y: 0, width: session.width, height: session.height)
         let base = CIImage(cvPixelBuffer: imageBuffer).cropped(to: frameRect)
-        var screen = base
-        if session.edit.showClickRipples {
-            for click in session.clicks {
-                let elapsed = time - click.time
-                guard elapsed >= 0, elapsed < ExportRippleParams.window else { continue }
-                let radius = ExportRippleParams.radius(forElapsed: elapsed)
-                let alpha = ExportRippleParams.alpha(forElapsed: elapsed)
-                screen = polish.compositeRipple(over: screen, at: CGPoint(x: click.x, y: click.y), radius: radius, alpha: alpha)
-                    .cropped(to: frameRect)
-            }
-        }
-        return applyFramingWithMotionBlurIfNeeded(to: screen, time: time, session: session, polish: polish)
-    }
-
-    /// Cursor layer for a single export time (position, shape, pulse, spring match that instant).
-    private func cursorLayerForExport(session: RecordingSession, time: Double) -> CIImage? {
-        guard session.edit.showCursor,
-              let cursor = smoothedCursor(
-                at: time,
-                samples: session.cursorSamples,
-                smoothing: session.settings.cursorSmoothing,
-                window: session.settings.cursorSmoothingWindow
-              )
-        else { return nil }
-        let shape = cursorShape(at: time, samples: session.cursorShapes)
-        let pulse = session.settings.cursorClickPulse
-            ? cursorPulseScale(at: time, clicks: session.clicks, strength: session.settings.cursorClickPulseStrength)
-            : 1.0
-        return CursorOverlay.shared.imageLayer(
-            at: cursor,
-            scale: CGFloat(session.settings.cursorScale) * pulse,
-            sprite: session.settings.cursorSprite,
-            settings: session.settings,
-            opacity: CGFloat(session.settings.cursorOpacity),
-            shape: shape,
-            springRotation: cursorSpringRotation(
-                at: time,
-                samples: session.cursorSamples,
-                smoothing: session.settings.cursorSmoothing,
-                window: session.settings.cursorSmoothingWindow,
-                strength: session.settings.cursorSpring,
-                sprite: session.settings.cursorSprite,
-                shape: shape
-            ),
-            canvasHeight: CGFloat(session.height)
+        return renderFrame(
+            sourceImage: base,
+            state: state,
+            session: session,
+            polish: polish,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            fps: fps
         )
     }
 
-    /// Approximate on-screen cursor speed (pixels/sec) for motion-blur gating.
-    private func cursorPixelSpeed(at time: Double, session: RecordingSession) -> Double {
-        guard session.edit.showCursor, session.cursorSamples.count >= 2 else { return 0 }
-        let frameDuration = 1.0 / Double(max(1, session.settings.frameRate))
-        let dt = max(0.004, frameDuration * 0.45)
-        let t0 = max(0, time - dt)
-        let t1 = min(session.approximateDuration, time + dt)
-        guard let a = smoothedCursor(
-            at: t0,
-            samples: session.cursorSamples,
-            smoothing: session.settings.cursorSmoothing,
-            window: session.settings.cursorSmoothingWindow
-        ),
-            let b = smoothedCursor(
-                at: t1,
-                samples: session.cursorSamples,
-                smoothing: session.settings.cursorSmoothing,
-                window: session.settings.cursorSmoothingWindow
-            )
-        else { return 0 }
-        return hypot(b.x - a.x, b.y - a.y) / max(0.000_1, t1 - t0)
-    }
-
-    private func applyFramingWithMotionBlurIfNeeded(
-        to screen: CIImage,
-        time: Double,
+    private func renderFrame(
+        sourceImage: CIImage,
+        state: RenderFrameState,
         session: RecordingSession,
-        polish: PolishPipeline
+        polish: PolishPipeline,
+        trimStart: Double,
+        trimEnd: Double,
+        fps: Int
     ) -> CIImage {
-        let strength = min(max(session.edit.motionBlur, 0), 1)
-        let zoomMoving = activeZoom(at: time, zooms: session.zooms).map { zoomIsMoving(zoom: $0, at: time) } ?? false
-        let cursorSpeed = cursorPixelSpeed(at: time, session: session)
-        // Threshold scales with motion-blur strength: at strength 1.0 even gentle motion blurs
-        // (~80 px/s), at strength 0.1 only fast flicks do (~300 px/s). This keeps idle frames cheap
-        // while making the slider's effect on cursor motion clearly visible.
-        let cursorThreshold = 320 - 240 * strength
-        let cursorMovingFast = cursorSpeed > cursorThreshold
-        guard strength > 0.001, zoomMoving || cursorMovingFast else {
-            let transform = framedLayerTransform(at: time, session: session, polish: polish)
-            let cursorLayer = cursorLayerForExport(session: session, time: time)
-            return polish.applyFraming(to: screen, cursorLayer: cursorLayer, transform: transform)
+        guard shouldApplyMotionBlur(state: state, session: session, fps: fps) else {
+            return renderSinglePass(sourceImage: sourceImage, state: state, session: session, polish: polish)
         }
 
-        let frameDuration = 1.0 / Double(max(1, session.settings.frameRate))
-        // A short shutter gives a polished camera smear without the heavy ghosting that made the
-        // previous multi-sample blur feel mushy during zooms.
-        let shutter = min(0.07, frameDuration * (1.2 + strength * 4.0))
-        let sampleCount = strength > 0.66 ? 7 : (strength > 0.33 ? 5 : 3)
+        let strength = state.motionBlurAmount
+        let frameDuration = 1.0 / Double(max(1, fps))
+        let shutter = frameDuration * min(1.25, 0.20 + strength * 0.45)
+        let sampleCount = strength > 1.35 ? 9 : (strength > 0.75 ? 7 : (strength > 0.33 ? 5 : 3))
         let weights = (0..<sampleCount).map { index in
-            let unit = sampleCount == 1 ? 0 : Double(index) / Double(sampleCount - 1)
+            let unit = sampleCount == 1 ? 0.5 : Double(index) / Double(sampleCount - 1)
             return gaussianWeight(unit: unit, strength: strength)
         }
         let totalWeight = max(0.000_001, weights.reduce(0, +))
-
-        // Composite using weighted source-over on a black backdrop. Each layer carries premultiplied
-        // alpha = weight, so as weights sum to 1 the final pixel restores full RGB without dimming.
-        var accumulated: CIImage = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0))
-            .cropped(to: CGRect(x: 0, y: 0, width: session.width, height: session.height))
+        let frameRect = CGRect(x: 0, y: 0, width: session.width, height: session.height)
+        var accumulated = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: frameRect)
 
         for index in 0..<sampleCount {
-            let unit = sampleCount == 1 ? 0 : Double(index) / Double(sampleCount - 1)
+            let unit = sampleCount == 1 ? 0.5 : Double(index) / Double(sampleCount - 1)
             let offset = (unit - 0.5) * shutter
-            let sampleTime = min(max(0, time + offset), session.approximateDuration)
-            let transform = framedLayerTransform(at: sampleTime, session: session, polish: polish)
-            let cursorSample = cursorLayerForExport(session: session, time: sampleTime)
-            let transformed = polish.applyFraming(to: screen, cursorLayer: cursorSample, transform: transform)
-                .cropped(to: CGRect(x: 0, y: 0, width: session.width, height: session.height))
-            let weight = weights[index] / totalWeight
-            let weighted = premultipliedWeighted(transformed, weight: weight)
+            let sampleSourceTime = min(max(trimStart, state.sourceTime + offset), trimEnd)
+            let sampleState = RenderFrameStateBuilder.make(
+                session: session,
+                outputTime: max(0, state.outputTime + offset),
+                sourceTime: sampleSourceTime,
+                canvasSize: state.canvasSize
+            )
+            let image = renderSinglePass(sourceImage: sourceImage, state: sampleState, session: session, polish: polish)
+                .cropped(to: frameRect)
+            let weighted = premultipliedWeighted(image, weight: weights[index] / totalWeight)
             let add = CIFilter.additionCompositing()
             add.inputImage = weighted
             add.backgroundImage = accumulated
-            accumulated = (add.outputImage ?? accumulated).cropped(to: CGRect(x: 0, y: 0, width: session.width, height: session.height))
+            accumulated = (add.outputImage ?? accumulated).cropped(to: frameRect)
         }
         return forceOpaque(accumulated)
     }
 
-    private func framedLayerTransform(at time: Double, session: RecordingSession, polish: PolishPipeline) -> FramedLayerTransform {
-        guard let zoom = activeZoom(at: time, zooms: session.zooms) else { return .identity }
-        let t = min(max((time - zoom.start) / max(0.001, zoom.duration), 0), 1)
-        let envelope = zoomEnvelope(progress: t, zoom: zoom)
-        let scale = CGFloat(pow(zoom.scale, envelope))
+    private func renderSinglePass(
+        sourceImage: CIImage,
+        state: RenderFrameState,
+        session: RecordingSession,
+        polish: PolishPipeline
+    ) -> CIImage {
+        let frameRect = CGRect(x: 0, y: 0, width: session.width, height: session.height)
+        var screen = sourceImage.cropped(to: frameRect)
+        for click in state.activeClicks {
+            let radius = ExportRippleParams.radius(forElapsed: click.age)
+            let alpha = ExportRippleParams.alpha(forElapsed: click.age)
+            screen = polish.compositeRipple(over: screen, at: click.position, radius: radius, alpha: alpha)
+                .cropped(to: frameRect)
+        }
+        let transform = framedLayerTransform(state: state, polish: polish)
+        let cursorLayer = cursorLayerForExport(session: session, state: state)
+        return polish.applyFraming(to: screen, cursorLayer: cursorLayer, transform: transform)
+    }
+
+    /// Cursor layer for a single export time (position, shape, pulse, spring match that instant).
+    private func cursorLayerForExport(session: RecordingSession, state: RenderFrameState) -> CIImage? {
+        guard let cursor = state.cursor
+        else { return nil }
+        let liftedPosition = CGPoint(
+            x: cursor.position.x,
+            y: max(0, cursor.position.y - CursorOverlay.renderVerticalLift)
+        )
+        return CursorOverlay.shared.imageLayer(
+            at: liftedPosition,
+            scale: cursor.scale,
+            sprite: session.settings.cursorSprite,
+            settings: session.settings,
+            opacity: cursor.opacity,
+            shape: cursor.shape,
+            springRotation: cursor.rotation,
+            canvasHeight: CGFloat(session.height)
+        )
+    }
+
+    private func shouldApplyMotionBlur(state: RenderFrameState, session: RecordingSession, fps: Int) -> Bool {
+        let strength = state.motionBlurAmount
+        guard strength > 0.001 else { return false }
+        let dt = max(1.0 / Double(max(1, fps)), 0.001)
+        let before = RenderFrameStateBuilder.make(
+            session: session,
+            outputTime: max(0, state.outputTime - dt * 0.5),
+            sourceTime: max(0, state.sourceTime - dt * 0.5),
+            canvasSize: state.canvasSize
+        )
+        let after = RenderFrameStateBuilder.make(
+            session: session,
+            outputTime: state.outputTime + dt * 0.5,
+            sourceTime: min(session.approximateDuration, state.sourceTime + dt * 0.5),
+            canvasSize: state.canvasSize
+        )
+        let cameraDelta = hypot(after.cameraCenter.x - before.cameraCenter.x, after.cameraCenter.y - before.cameraCenter.y)
+        let zoomDelta = abs(after.zoom - before.zoom)
+        let cursorDelta: CGFloat
+        if let a = before.cursor?.position, let b = after.cursor?.position {
+            cursorDelta = hypot(b.x - a.x, b.y - a.y)
+        } else {
+            cursorDelta = 0
+        }
+        let cameraMoving = cameraDelta > 0.35 || zoomDelta > 0.0008
+        // Cursor-only blur is visually risky because it currently re-renders the whole scene
+        // multiple times just to blur cursor movement. Keep the threshold higher so tiny cursor
+        // jitter does not trigger expensive full-frame blur.
+        let normalizedStrength = min(max(strength, 0), 1)
+        let cursorMoving = cursorDelta > CGFloat(2.0 + (1 - normalizedStrength) * 3.0)
+
+        return cameraMoving || cursorMoving
+    }
+
+    private func framedLayerTransform(state: RenderFrameState, polish: PolishPipeline) -> FramedLayerTransform {
+        let scale = CGFloat(state.zoom)
         guard scale > 1.001 else { return .identity }
 
-        let zoomCenter = polish.canvasPoint(forVideoPoint: resolvedZoomCenter(for: zoom, time: time, session: session))
+        let zoomCenter = polish.canvasPoint(forVideoPoint: state.cameraCenter)
         let canvasCenter = polish.canvasCenter
-        let panAmount = zoomPanAmount(progress: t, zoom: zoom)
         let desiredZoomCenter = CGPoint(
-            x: zoomCenter.x + (canvasCenter.x - zoomCenter.x) * panAmount,
-            y: zoomCenter.y + (canvasCenter.y - zoomCenter.y) * panAmount
+            x: zoomCenter.x + (canvasCenter.x - zoomCenter.x) * state.panAmount,
+            y: zoomCenter.y + (canvasCenter.y - zoomCenter.y) * state.panAmount
         )
         let transform = CGAffineTransform(
             a: scale,
@@ -388,20 +660,6 @@ final class ExportRenderer: ObservableObject {
             ty: desiredZoomCenter.y - scale * zoomCenter.y
         )
         return FramedLayerTransform(affine: transform)
-    }
-
-    private func activeZoom(at time: Double, zooms: [ZoomKeyframe]) -> ZoomKeyframe? {
-        zooms.first { time >= $0.start && time <= $0.start + $0.duration }
-    }
-
-    private func resolvedZoomCenter(for zoom: ZoomKeyframe, time: Double, session: RecordingSession) -> CGPoint {
-        cinematicZoomCameraCenter(for: zoom, at: time, session: session)
-    }
-
-    private func zoomIsMoving(zoom: ZoomKeyframe, at time: Double) -> Bool {
-        let elapsed = min(max(time - zoom.start, 0), zoom.duration)
-        let timings = zoomAnimationTimings(for: zoom)
-        return elapsed <= timings.zoomIn || elapsed >= zoom.duration - timings.zoomOut
     }
 
     private func gaussianWeight(unit: Double, strength: Double) -> Double {
@@ -419,10 +677,18 @@ final class ExportRenderer: ObservableObject {
     /// while leaving alpha at 1, which made the accumulated alpha = N and Core Image then
     /// unpremultiplied by N, producing the near-black image the user reported.
     private func premultipliedWeighted(_ image: CIImage, weight: Double) -> CIImage {
+        let w = CGFloat(min(max(weight, 0), 1))
+
         let matrix = CIFilter.colorMatrix()
-        let w = CGFloat(weight)
         matrix.inputImage = image
+
+        // Preserve RGB and scale alpha. With premultiplied compositing, this gives
+        // weighted contribution without darkening the accumulated result.
+        matrix.rVector = CIVector(x: 1, y: 0, z: 0, w: 0)
+        matrix.gVector = CIVector(x: 0, y: 1, z: 0, w: 0)
+        matrix.bVector = CIVector(x: 0, y: 0, z: 1, w: 0)
         matrix.aVector = CIVector(x: 0, y: 0, z: 0, w: w)
+
         return matrix.outputImage ?? image
     }
 
@@ -437,6 +703,21 @@ final class ExportRenderer: ObservableObject {
         return matrix.outputImage ?? image
     }
 
+    private static func checkWriter(_ writer: AVAssetWriter) throws {
+        switch writer.status {
+        case .unknown, .writing:
+            return
+        case .failed:
+            throw writer.error ?? RecorderError.message("Export writer failed.")
+        case .cancelled:
+            throw writer.error ?? RecorderError.message("Export writer was cancelled.")
+        case .completed:
+            throw RecorderError.message("Export writer finished before all frames were appended.")
+        @unknown default:
+            throw writer.error ?? RecorderError.message("Export writer entered an unknown state.")
+        }
+    }
+
     private static func makeRenderedOutputURL(for session: RecordingSession, outputDirectory: URL?) throws -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
@@ -449,6 +730,98 @@ final class ExportRenderer: ObservableObject {
         return directory
             .appendingPathComponent("\(baseName)-\(formatter.string(from: Date()))")
             .appendingPathExtension("mp4")
+    }
+}
+
+final class SequentialAssetFrameProvider: SourceFrameProvider {
+    private struct DecodedFrame {
+        let time: Double
+        let buffer: CVPixelBuffer
+    }
+
+    private var reader: AVAssetReader?
+    private var output: AVAssetReaderTrackOutput?
+    private var latestFrame: DecodedFrame?
+    private var pendingFrame: DecodedFrame?
+    private var didFinish = false
+
+    func prepare(asset: AVAsset, trimStart: Double, trimEnd: Double) async throws {
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw RecorderError.message("The raw recording does not contain a video track.")
+        }
+
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: max(0, trimStart), preferredTimescale: 600),
+            duration: CMTime(seconds: max(0.001, trimEnd - trimStart), preferredTimescale: 600)
+        )
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+        ])
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else {
+            throw RecorderError.message("Could not read frames from the raw recording.")
+        }
+        reader.add(output)
+        guard reader.startReading() else {
+            throw reader.error ?? RecorderError.message("Could not start reading the recording.")
+        }
+
+        self.reader = reader
+        self.output = output
+        self.latestFrame = nil
+        self.pendingFrame = readNextFrame()
+        self.didFinish = pendingFrame == nil
+    }
+
+    func frame(at sourceTime: Double) throws -> CVPixelBuffer {
+        guard let reader else {
+            throw RecorderError.message("Export frame provider was not prepared.")
+        }
+        if reader.status == .failed {
+            throw reader.error ?? RecorderError.message("Could not decode a source frame.")
+        }
+
+        let target = sourceTime + 0.000_001
+        if latestFrame == nil, let pendingFrame {
+            latestFrame = pendingFrame
+            self.pendingFrame = readNextFrame()
+            didFinish = self.pendingFrame == nil
+        }
+
+        while let pendingFrame, pendingFrame.time <= target {
+            latestFrame = pendingFrame
+            self.pendingFrame = readNextFrame()
+            didFinish = self.pendingFrame == nil
+        }
+
+        if let latestFrame {
+            return latestFrame.buffer
+        }
+        if let pendingFrame {
+            latestFrame = pendingFrame
+            self.pendingFrame = readNextFrame()
+            didFinish = self.pendingFrame == nil
+            return pendingFrame.buffer
+        }
+        if didFinish, let latestFrame {
+            return latestFrame.buffer
+        }
+        throw RecorderError.message("Could not decode any source video frames.")
+    }
+
+    private func readNextFrame() -> DecodedFrame? {
+        guard let output else { return nil }
+        guard let sample = output.copyNextSampleBuffer(),
+              let buffer = CMSampleBufferGetImageBuffer(sample)
+        else {
+            return nil
+        }
+        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+        let seconds = CMTimeGetSeconds(pts)
+        return DecodedFrame(time: seconds.isFinite ? seconds : 0, buffer: buffer)
     }
 }
 
@@ -629,7 +1002,13 @@ final class PolishPipeline {
         let cr = rendersVideoOnly ? 0 : max(0, session.edit.cornerRadius) * Double(min(session.width, session.height)) * 1.4
         self.cornerRadiusPx = CGFloat(cr)
 
-        backgroundImage = Self.makeBackground(style: session.edit.background, size: canvasSize)
+        backgroundImage = Self.makeBackground(
+            style: session.edit.background,
+            size: canvasSize,
+            imageFit: session.edit.imageFit,
+            focusX: session.edit.imageFocusX,
+            focusY: session.edit.imageFocusY
+        )
         cornerMask = Self.makeRoundedMask(size: framedSize, radius: cornerRadiusPx)
         if !rendersVideoOnly, session.edit.shadow > 0.001 {
             shadowImage = Self.makeShadow(maskSize: framedSize,
@@ -731,46 +1110,50 @@ final class PolishPipeline {
         else {
             return base
         }
-        let canvasW = min(16_384, max(2, Int(extent.width.rounded(.toNearestOrAwayFromZero))))
-        let canvasH = min(16_384, max(2, Int(extent.height.rounded(.toNearestOrAwayFromZero))))
-        let normalizedBase = base.cropped(to: CGRect(origin: .zero, size: CGSize(width: canvasW, height: canvasH)))
-        let imageRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: canvasW,
-            pixelsHigh: canvasH,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )
-        guard let imageRep else { return base }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: imageRep)
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: canvasW, height: canvasH).fill()
-        let cy = CGFloat(canvasH) - CGFloat(point.y)
-        let path = NSBezierPath(ovalIn: NSRect(
-            x: point.x - CGFloat(radius),
-            y: cy - CGFloat(radius),
-            width: CGFloat(radius * 2),
-            height: CGFloat(radius * 2)
-        ))
-        path.lineWidth = ExportRippleParams.lineWidth
-        NSColor.white.withAlphaComponent(CGFloat(alpha)).setStroke()
-        path.stroke()
-        NSGraphicsContext.restoreGraphicsState()
-        guard let cg = imageRep.cgImage else { return normalizedBase }
-        let overlay = CIImage(cgImage: cg)
-        return overlay.composited(over: normalizedBase)
-            .cropped(to: CGRect(origin: .zero, size: CGSize(width: canvasW, height: canvasH)))
+        let normalizedBase = base.cropped(to: extent)
+        let center = CGPoint(x: point.x, y: extent.height - point.y)
+        let lineWidth = CGFloat(ExportRippleParams.lineWidth)
+        let outer = CGFloat(radius) + lineWidth * 2 + 3
+        let rippleExtent = CGRect(
+            x: center.x - outer,
+            y: center.y - outer,
+            width: outer * 2,
+            height: outer * 2
+        ).intersection(extent)
+        guard !rippleExtent.isNull, !rippleExtent.isEmpty else { return normalizedBase }
+        let halfLine = lineWidth * 0.5
+        let feather: CGFloat = 1.25
+
+        let outerDisk = CIFilter.radialGradient()
+        outerDisk.center = center
+        outerDisk.radius0 = Float(max(0, CGFloat(radius) + halfLine))
+        outerDisk.radius1 = Float(max(0, CGFloat(radius) + halfLine + feather))
+        outerDisk.color0 = CIColor(red: 1, green: 1, blue: 1, alpha: alpha)
+        outerDisk.color1 = CIColor(red: 1, green: 1, blue: 1, alpha: 0)
+
+        let innerDisk = CIFilter.radialGradient()
+        innerDisk.center = center
+        innerDisk.radius0 = Float(max(0, CGFloat(radius) - halfLine - feather))
+        innerDisk.radius1 = Float(max(0, CGFloat(radius) - halfLine))
+        innerDisk.color0 = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
+        innerDisk.color1 = CIColor(red: 1, green: 1, blue: 1, alpha: 0)
+
+        let cutHole = CIFilter.sourceOutCompositing()
+        cutHole.inputImage = outerDisk.outputImage?.cropped(to: rippleExtent)
+        cutHole.backgroundImage = innerDisk.outputImage?.cropped(to: rippleExtent)
+        let overlay = (cutHole.outputImage ?? CIImage.empty()).cropped(to: rippleExtent)
+        return overlay.composited(over: normalizedBase).cropped(to: extent)
     }
 
     // MARK: - Asset builders
 
-    private static func makeBackground(style: BackgroundStyle, size: CGSize) -> CIImage {
+    private static func makeBackground(
+        style: BackgroundStyle,
+        size: CGSize,
+        imageFit: BackgroundImageFit = .fill,
+        focusX: Double = 0.5,
+        focusY: Double = 0.5
+    ) -> CIImage {
         switch style {
         case .none:
             return CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 1))
@@ -786,68 +1169,123 @@ final class PolishPipeline {
             filter.color0 = top.ciColor
             filter.color1 = bottom.ciColor
             return (filter.outputImage ?? CIImage.empty()).cropped(to: CGRect(origin: .zero, size: size))
+        case .image(let path):
+            let target = CGRect(origin: .zero, size: size)
+            let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 1)).cropped(to: target)
+            guard
+                !path.isEmpty,
+                let image = CIImage(contentsOf: URL(fileURLWithPath: path)),
+                image.extent.width > 0,
+                image.extent.height > 0
+            else {
+                return black
+            }
+            // Normalize extent to origin so we can place it precisely.
+            let normalized = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+            let imgW = normalized.extent.width
+            let imgH = normalized.extent.height
+            let scale: CGFloat
+            switch imageFit {
+            case .fill:
+                scale = max(size.width / imgW, size.height / imgH)
+            case .fit:
+                scale = min(size.width / imgW, size.height / imgH)
+            }
+            let scaled = normalized.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            let scaledW = scaled.extent.width
+            let scaledH = scaled.extent.height
+
+            // Core Image's Y axis is bottom-up, but the focus point is expressed top-down.
+            let fx = CGFloat(min(max(focusX, 0), 1))
+            let fyTopDown = CGFloat(min(max(focusY, 0), 1))
+            let fy = 1 - fyTopDown
+
+            let tx: CGFloat
+            let ty: CGFloat
+            if scaledW >= size.width {
+                tx = -(scaledW - size.width) * fx
+            } else {
+                tx = (size.width - scaledW) * fx
+            }
+            if scaledH >= size.height {
+                ty = -(scaledH - size.height) * fy
+            } else {
+                ty = (size.height - scaledH) * fy
+            }
+            let positioned = scaled.transformed(by: CGAffineTransform(translationX: tx, y: ty))
+            // For .fit, composite over black so empty margins are filled.
+            let composited = positioned.composited(over: black)
+            return composited.cropped(to: target)
         }
     }
 
     private static func makeRoundedMask(size: CGSize, radius: CGFloat) -> CIImage {
-        let imageRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: imageRep)
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-        let path = NSBezierPath(roundedRect: NSRect(origin: .zero, size: size),
-                                xRadius: radius,
-                                yRadius: radius)
-        NSColor.white.setFill()
-        path.fill()
-        NSGraphicsContext.restoreGraphicsState()
-        return CIImage(cgImage: imageRep.cgImage!)
+        let rect = CGRect(origin: .zero, size: size)
+
+        guard size.width > 0, size.height > 0 else {
+            return CIImage.empty()
+        }
+
+        let clampedRadius = min(
+            max(0, radius),
+            min(size.width, size.height) / 2
+        )
+
+        if clampedRadius <= 0.001 {
+            return CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1))
+                .cropped(to: rect)
+        }
+
+        guard let filter = CIFilter(name: "CIRoundedRectangleGenerator") else {
+            return CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1))
+                .cropped(to: rect)
+        }
+
+        filter.setValue(CIVector(cgRect: rect), forKey: "inputExtent")
+        filter.setValue(clampedRadius, forKey: "inputRadius")
+        filter.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 1), forKey: "inputColor")
+
+        return (filter.outputImage ?? CIImage.empty())
+            .cropped(to: rect)
     }
 
     private static func makeShadow(maskSize: CGSize, radius: CGFloat, strength: Double) -> CIImage {
-        // Build solid shadow tile then blur.
-        let imageRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(maskSize.width),
-            pixelsHigh: Int(maskSize.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: imageRep)
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: maskSize).fill()
-        let path = NSBezierPath(roundedRect: NSRect(origin: .zero, size: maskSize),
-                                xRadius: radius,
-                                yRadius: radius)
-        NSColor.black.withAlphaComponent(CGFloat(strength) * 0.55).setFill()
-        path.fill()
-        NSGraphicsContext.restoreGraphicsState()
-        let base = CIImage(cgImage: imageRep.cgImage!)
+        let rect = CGRect(origin: .zero, size: maskSize)
+
+        guard maskSize.width > 0, maskSize.height > 0, strength > 0.001 else {
+            return CIImage.empty()
+        }
+
+        let clampedRadius = min(
+            max(0, radius),
+            min(maskSize.width, maskSize.height) / 2
+        )
+
+        let alpha = CGFloat(min(max(strength, 0), 1)) * 0.55
+        let blurRadius = CGFloat(20 + strength * 30)
+        let pad = blurRadius * 4 + 12
+        let haloRect = rect.insetBy(dx: -pad, dy: -pad)
+
+        let base: CIImage
+
+        if clampedRadius <= 0.001 {
+            base = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: alpha))
+                .cropped(to: rect)
+        } else if let filter = CIFilter(name: "CIRoundedRectangleGenerator") {
+            filter.setValue(CIVector(cgRect: rect), forKey: "inputExtent")
+            filter.setValue(clampedRadius, forKey: "inputRadius")
+            filter.setValue(CIColor(red: 0, green: 0, blue: 0, alpha: alpha), forKey: "inputColor")
+            base = (filter.outputImage ?? CIImage.empty()).cropped(to: rect)
+        } else {
+            base = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: alpha))
+                .cropped(to: rect)
+        }
+
         let blur = CIFilter.gaussianBlur()
         blur.inputImage = base
-        let blurRadius = Float(20 + strength * 30)
-        blur.radius = blurRadius
-        guard let blurred = blur.outputImage else { return base }
-        // Keep the soft halo: never crop back to the tight mask rect (that was cutting the shadow off).
-        let pad = CGFloat(blurRadius) * 4 + 12
-        let haloRect = base.extent.insetBy(dx: -pad, dy: -pad)
-        return blurred.cropped(to: haloRect)
+        blur.radius = Float(blurRadius)
+
+        return (blur.outputImage ?? base)
+            .cropped(to: haloRect)
     }
 }

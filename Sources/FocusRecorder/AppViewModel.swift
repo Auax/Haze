@@ -17,7 +17,6 @@ final class AppViewModel: ObservableObject {
 
     let capture = CaptureEngine()
     let renderer = ExportRenderer()
-    let previewCache = PreviewCacheStore()
     private var cancellables: Set<AnyCancellable> = []
     private var undoStack: [RecordingSession] = []
     private var redoStack: [RecordingSession] = []
@@ -39,9 +38,6 @@ final class AppViewModel: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         renderer.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
-        previewCache.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         PreferencesStore.shared.applyDefaults(to: &settings)
@@ -116,7 +112,6 @@ final class AppViewModel: ObservableObject {
         updated.zooms.append(zoom)
         updated.zooms.sort { $0.start < $1.start }
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectOnlyZoom(zoom.id)
     }
 
@@ -126,7 +121,6 @@ final class AppViewModel: ObservableObject {
         var updated = session
         updated.zooms.removeAll { $0.id == zoom.id }
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectedZoomIDs.remove(zoom.id)
         if selectedZoomID == zoom.id {
             selectOnlyZoom(updated.zooms.first?.id)
@@ -164,7 +158,6 @@ final class AppViewModel: ObservableObject {
         updated.zooms[index] = normalized
         updated.zooms.sort { $0.start < $1.start }
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectedZoomID = normalized.id
         selectedZoomIDs.insert(normalized.id)
     }
@@ -194,7 +187,6 @@ final class AppViewModel: ObservableObject {
                 selectOnlyZoom(second.id)
             }
             applySession(updated)
-            previewCache.invalidate(for: updated)
             return
         }
         // No zoom under playhead: trim the clip after the playhead (rough cut).
@@ -204,7 +196,6 @@ final class AppViewModel: ObservableObject {
         updated.timelineTrimEnd = max(0, updated.approximateDuration - t)
         updated.normalizeTimelineTrims()
         applySession(updated)
-        previewCache.invalidate(for: updated)
         playbackTime = min(max(t, updated.timelineContentStart), updated.timelineContentEnd - 0.001)
     }
 
@@ -215,7 +206,6 @@ final class AppViewModel: ObservableObject {
         if let trimEnd { session.timelineTrimEnd = trimEnd }
         session.normalizeTimelineTrims()
         applySession(session)
-        previewCache.invalidate(for: session)
         playbackTime = min(max(playbackTime, session.timelineContentStart), session.timelineContentEnd - 0.001)
     }
 
@@ -233,7 +223,6 @@ final class AppViewModel: ObservableObject {
             duration: updated.measuredDuration
         )
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectOnlyZoom(updated.zooms.first?.id)
     }
 
@@ -243,7 +232,6 @@ final class AppViewModel: ObservableObject {
         var updated = session
         updated.zooms = []
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectOnlyZoom(nil)
     }
 
@@ -266,7 +254,6 @@ final class AppViewModel: ObservableObject {
         }
         updated.zooms.sort { $0.start < $1.start }
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectedZoomIDs = Set(newIDs)
         selectedZoomID = newIDs.last
     }
@@ -316,7 +303,6 @@ final class AppViewModel: ObservableObject {
         var updated = session
         updated.zooms.removeAll { ids.contains($0.id) }
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectOnlyZoom(updated.zooms.first?.id)
     }
 
@@ -356,7 +342,6 @@ final class AppViewModel: ObservableObject {
         }
         updated.zooms.sort { $0.start < $1.start }
         applySession(updated)
-        previewCache.invalidate(for: updated)
         selectedZoomIDs = Set(newIDs)
         selectedZoomID = newIDs.first
     }
@@ -404,7 +389,6 @@ final class AppViewModel: ObservableObject {
         }
         updated.zooms.sort { $0.start < $1.start }
         applySession(updated)
-        previewCache.invalidate(for: updated)
     }
 
     func alignSelectedZoomStartToPlayhead() {
@@ -424,7 +408,6 @@ final class AppViewModel: ObservableObject {
         var updated = session
         updated.edit = edit
         applySession(updated, persist: true)
-        previewCache.invalidate(for: updated)
     }
 
     func updateSessionSettings(_ settings: RecordingSettings, recordUndo: Bool = false) {
@@ -434,7 +417,6 @@ final class AppViewModel: ObservableObject {
         updated.settings = settings
         self.settings = settings
         applySession(updated, persist: true)
-        previewCache.invalidate(for: updated)
     }
 
     // MARK: - Undo/redo

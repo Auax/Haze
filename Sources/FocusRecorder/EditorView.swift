@@ -9,8 +9,10 @@ import UniformTypeIdentifiers
 struct EditorView: View {
     @EnvironmentObject private var model: AppViewModel
     @StateObject private var playback = EditorPlaybackHolder()
-    @StateObject private var previewRender = PreviewRenderController()
     @State private var inspectorTab: InspectorTab = .zooms
+    @State private var isPreviewFullscreen: Bool = false
+    @State private var fullscreenControlsVisible: Bool = true
+    @State private var fullscreenHideTask: Task<Void, Never>?
 
     enum InspectorTab: Hashable, CaseIterable {
         case zooms, polish, cursor, export
@@ -40,11 +42,9 @@ struct EditorView: View {
                 content(session: session)
                     .onAppear {
                         playback.ensure(url: session.rawVideoURL)
-                        previewRender.resetToApproximate(cache: model.previewCache)
                     }
                     .onChange(of: session.rawVideoURL) { _, newURL in
                         playback.ensure(url: newURL)
-                        previewRender.resetToApproximate(cache: model.previewCache)
                     }
             } else {
                 ContentUnavailableView(
@@ -60,56 +60,135 @@ struct EditorView: View {
     @ViewBuilder
     private func content(session: RecordingSession) -> some View {
         VStack(spacing: 0) {
-            EditorTopBar(session: session, previewRender: previewRender)
-                .environmentObject(model)
-            Divider()
-            HSplitView {
-                VStack(spacing: 0) {
-                    if let controller = playback.controller {
-                        EditorPreview(
-                            session: session,
-                            controller: controller,
-                            playbackTime: $model.playbackTime,
-                            selectedZoomID: $model.selectedZoomID,
-                            previewRender: previewRender
-                        )
-                        .environmentObject(model)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        Divider()
-                        TimelinePanel(
-                            session: session,
-                            controller: controller,
-                            playbackTime: $model.playbackTime,
-                            selectedZoomID: $model.selectedZoomID,
-                            previewRender: previewRender
-                        )
-                        .environmentObject(model)
-                        .frame(height: 260)
-                        .onAppear {
-                            syncPlaybackRange(session: session, controller: controller)
-                        }
-                        .onChange(of: session.timelineTrimStart) { _, _ in
-                            syncPlaybackRange(session: session, controller: controller)
-                        }
-                        .onChange(of: session.timelineTrimEnd) { _, _ in
-                            syncPlaybackRange(session: session, controller: controller)
-                        }
-                        .onChange(of: session.measuredDuration) { _, _ in
-                            syncPlaybackRange(session: session, controller: controller)
-                        }
-                    } else {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                .frame(minWidth: 720)
-                Inspector(tab: $inspectorTab, session: session, controller: playback.controller)
+            if !isPreviewFullscreen {
+                EditorTopBar(session: session)
                     .environmentObject(model)
-                    .frame(minWidth: 320, idealWidth: 360, maxWidth: 460)
+                Divider()
+            }
+            if isPreviewFullscreen {
+                if let controller = playback.controller {
+                    fullscreenContent(session: session, controller: controller)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                HSplitView {
+                    VStack(spacing: 0) {
+                        if let controller = playback.controller {
+                            EditorPreview(
+                                session: session,
+                                controller: controller,
+                                playbackTime: $model.playbackTime,
+                                selectedZoomID: $model.selectedZoomID
+                            )
+                            .environmentObject(model)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            Divider()
+                            TimelinePanel(
+                                session: session,
+                                controller: controller,
+                                playbackTime: $model.playbackTime,
+                                selectedZoomID: $model.selectedZoomID,
+                                isPreviewFullscreen: $isPreviewFullscreen,
+                                onToggleFullscreen: { togglePreviewFullscreen() }
+                            )
+                            .environmentObject(model)
+                            .frame(height: 260)
+                            .onAppear {
+                                syncPlaybackRange(session: session, controller: controller)
+                            }
+                            .onChange(of: session.timelineTrimStart) { _, _ in
+                                syncPlaybackRange(session: session, controller: controller)
+                            }
+                            .onChange(of: session.timelineTrimEnd) { _, _ in
+                                syncPlaybackRange(session: session, controller: controller)
+                            }
+                            .onChange(of: session.measuredDuration) { _, _ in
+                                syncPlaybackRange(session: session, controller: controller)
+                            }
+                        } else {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                    .frame(minWidth: 720)
+                    Inspector(tab: $inspectorTab, session: session, controller: playback.controller)
+                        .environmentObject(model)
+                        .frame(minWidth: 320, idealWidth: 360, maxWidth: 460)
+                }
             }
         }
         .focusedSceneValue(\.editorActive, true)
         .background(KeyEventCatcher(action: handleKey(_:)))
+    }
+
+    @ViewBuilder
+    private func fullscreenContent(session: RecordingSession, controller: PlaybackController) -> some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            EditorPreview(
+                session: session,
+                controller: controller,
+                playbackTime: $model.playbackTime,
+                selectedZoomID: $model.selectedZoomID
+            )
+            .environmentObject(model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if fullscreenControlsVisible {
+                VStack {
+                    Spacer()
+                    FullscreenControlBar(
+                        session: session,
+                        controller: controller,
+                        playbackTime: $model.playbackTime,
+                        onExit: { togglePreviewFullscreen() }
+                    )
+                    .padding(.bottom, 32)
+                }
+                .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                showFullscreenControls()
+            case .ended:
+                break
+            }
+        }
+        .onAppear { showFullscreenControls() }
+    }
+
+    private func showFullscreenControls() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            fullscreenControlsVisible = true
+        }
+        fullscreenHideTask?.cancel()
+        fullscreenHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if !Task.isCancelled, isPreviewFullscreen {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    fullscreenControlsVisible = false
+                }
+            }
+        }
+    }
+
+    private func togglePreviewFullscreen() {
+        let entering = !isPreviewFullscreen
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isPreviewFullscreen = entering
+        }
+        if entering {
+            showFullscreenControls()
+        } else {
+            fullscreenHideTask?.cancel()
+            fullscreenControlsVisible = true
+        }
     }
 
     private func syncPlaybackRange(session: RecordingSession, controller: PlaybackController) {
@@ -155,6 +234,15 @@ struct EditorView: View {
             controller.seek(to: max(session.timelineContentStart, session.timelineContentEnd - 0.02))
             model.playbackTime = controller.currentTime
             return true
+        case .f:
+            togglePreviewFullscreen()
+            return true
+        case .escape:
+            if isPreviewFullscreen {
+                togglePreviewFullscreen()
+                return true
+            }
+            return false
         case .z:
             model.addZoomAtPlayhead()
             return true
@@ -210,7 +298,6 @@ extension FocusedValues {
 private struct EditorTopBar: View {
     @EnvironmentObject var model: AppViewModel
     let session: RecordingSession
-    @ObservedObject var previewRender: PreviewRenderController
 
     var body: some View {
         HStack(spacing: 14) {
@@ -224,29 +311,6 @@ private struct EditorTopBar: View {
                     .lineLimit(1)
             }
             Spacer()
-
-            Toggle(isOn: Binding(
-                get: { previewRender.mode == .highFidelity },
-                set: { enabled in
-                    previewRender.setMode(
-                        enabled ? .highFidelity : .approximate,
-                        cache: model.previewCache
-                    )
-                }
-            )) {
-                Label("Live Preview", systemImage: "eye")
-            }
-            .toggleStyle(.button)
-            .help("Enable high-fidelity live preview. The fast approximate preview remains the default.")
-
-            Button {
-                model.previewCache.renderAll(session: session, renderer: model.renderer)
-            } label: {
-                Label("Render Cache", systemImage: "film.stack")
-            }
-            .help("Pre-render final preview frames for smoother playback")
-
-            Divider().frame(height: 22)
 
             Button {
                 model.undo()
@@ -300,59 +364,24 @@ private struct EditorTopBar: View {
 // MARK: - Preview area
 
 private struct EditorPreview: View {
-    @EnvironmentObject private var model: AppViewModel
     let session: RecordingSession
     @ObservedObject var controller: PlaybackController
     @Binding var playbackTime: Double
     @Binding var selectedZoomID: UUID?
-    @ObservedObject var previewRender: PreviewRenderController
 
     var body: some View {
         ZStack {
             background
             GeometryReader { proxy in
-                if previewRender.mode == .highFidelity {
-                    MetalPreviewHostView(session: session, player: controller.player, enabled: true)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                } else {
-                    framedVideo(in: proxy.size)
-                }
+                framedVideo(in: proxy.size)
             }
-        }
-        .onAppear {
-            if previewRender.mode != .highFidelity {
-                updatePreviewFrameState(time: playbackTime)
-            }
-            model.previewCache.clearCurrentFrame()
-        }
-        .onDisappear {
-            model.previewCache.clearCurrentFrame()
-        }
-        .onChange(of: playbackTime) { _, newTime in
-            if previewRender.mode != .highFidelity {
-                updatePreviewFrameState(time: newTime)
-            }
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: newTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer
-            )
-        }
-        .onChange(of: controller.isPlaying) { _, isPlaying in
-            if previewRender.mode != .highFidelity {
-                updatePreviewFrameState(time: playbackTime)
-            }
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer
-            )
         }
         .clipped()
+        .onChange(of: controller.currentTime) { _, newTime in
+            if abs(newTime - playbackTime) > 0.005 {
+                playbackTime = newTime
+            }
+        }
     }
 
     @ViewBuilder
@@ -368,6 +397,18 @@ private struct EditorPreview: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
+        case .image(let path):
+            if let image = NSImage(contentsOfFile: path), image.isValid {
+                BackgroundImageView(
+                    image: image,
+                    fit: session.edit.imageFit,
+                    focusX: session.edit.imageFocusX,
+                    focusY: session.edit.imageFocusY,
+                    fallbackColor: .black
+                )
+            } else {
+                Color.black
+            }
         }
     }
 
@@ -383,10 +424,15 @@ private struct EditorPreview: View {
         let frameH = min(availableH, availableW / aspect)
         let frameW = frameH * aspect
         let radius = videoOnly ? 0 : max(0, CGFloat(session.edit.cornerRadius)) * min(frameW, frameH) * 1.4
-        let zoom = activeZoom(at: playbackTime, zooms: session.zooms)
-        let live = liveZoom(zoom: zoom, time: playbackTime)
-        let center = resolvedZoomCenter(zoom: zoom, time: playbackTime)
-        let panAmount = zoomCenterAmount(zoom: zoom, time: playbackTime)
+        let renderState = RenderFrameStateBuilder.make(
+            session: session,
+            outputTime: max(0, playbackTime - session.timelineContentStart),
+            sourceTime: playbackTime,
+            canvasSize: size
+        )
+        let live = CGFloat(renderState.zoom)
+        let center = renderState.cameraCenter
+        let panAmount = renderState.panAmount
         let frameCenter = CGPoint(x: frameW / 2, y: frameH / 2)
         let focalPoint = CGPoint(
             x: CGFloat(center.x) / CGFloat(max(1, session.width)) * frameW,
@@ -402,37 +448,17 @@ private struct EditorPreview: View {
         )
         let layerOffset = CGSize(width: desiredFocalPoint.x - scaledFocalPoint.x,
                                  height: desiredFocalPoint.y - scaledFocalPoint.y)
-        let cursorTime = playbackTime
-        let cursor: CGPoint? = session.edit.showCursor
-            ? smoothedCursor(
-                at: cursorTime,
-                samples: session.cursorSamples,
-                smoothing: session.settings.cursorSmoothing,
-                window: session.settings.cursorSmoothingWindow
-              )
-            : nil
-        let cursorShape = cursorShape(at: playbackTime, samples: session.cursorShapes)
-        let cursorSpring = session.edit.showCursor
-            ? cursorSpringRotation(
-                at: cursorTime,
-                samples: session.cursorSamples,
-                smoothing: session.settings.cursorSmoothing,
-                window: session.settings.cursorSmoothingWindow,
-                strength: session.settings.cursorSpring,
-                sprite: session.settings.cursorSprite,
-                shape: cursorShape
-              )
-            : 0
-        let cursorPulse = (session.edit.showCursor && session.settings.cursorClickPulse)
-            ? cursorPulseScale(at: playbackTime, clicks: session.clicks, strength: session.settings.cursorClickPulseStrength)
-            : 1.0
+        let cursorState = renderState.cursor
         // Drop the heavy SwiftUI shadow during playback. The static shadow is recomputed every
         // frame because of scaleEffect, which tanks FPS - especially at high resolutions.
         let isPlaying = controller.isPlaying
         let shadowRadius = videoOnly || isPlaying ? 0 : max(2, CGFloat(session.edit.shadow) * 30)
         let shadowOpacity = videoOnly || isPlaying ? 0 : session.edit.shadow * 0.6
         let shadowOffsetY = videoOnly || isPlaying ? 0 : max(0, CGFloat(session.edit.shadow) * 16)
-        let cursorOpacity = session.settings.cursorOpacity
+        let motionBlurRadius = approximateMotionBlurRadius(
+            state: renderState,
+            frameSize: CGSize(width: frameW, height: frameH)
+        )
         ZStack {
             ZStack {
                 PlayerHostView(player: controller.player)
@@ -460,85 +486,125 @@ private struct EditorPreview: View {
                             .allowsHitTesting(false)
                     }
                 }
-                if session.edit.showCursor, let point = cursor {
+                if let cursorState {
                     CursorMarker(
                         sprite: session.settings.cursorSprite,
-                        scale: CGFloat(session.settings.cursorScale) * cursorPulse,
+                        scale: cursorState.scale,
                         settings: session.settings,
-                        systemShape: cursorShape,
-                        springRotation: cursorSpring,
+                        systemShape: cursorState.shape,
+                        springRotation: cursorState.rotation,
                         frameToSessionRatio: frameW / max(1, CGFloat(session.width))
                     )
-                        .opacity(cursorOpacity)
+                        .opacity(cursorState.opacity)
                         .position(
-                            x: point.x / Double(session.width) * frameW,
-                            y: point.y / Double(session.height) * frameH
+                            x: cursorState.position.x / Double(session.width) * frameW,
+                            y: max(0, cursorState.position.y - CursorOverlay.renderVerticalLift) / Double(session.height) * frameH
                         )
                         .allowsHitTesting(false)
                 }
             }
             .frame(width: frameW, height: frameH)
+            .blur(radius: motionBlurRadius)
             .scaleEffect(live, anchor: .center)
             .offset(layerOffset)
         }
         .frame(width: size.width, height: size.height)
     }
 
-    private func activeZoom(at time: Double, zooms: [ZoomKeyframe]) -> ZoomKeyframe? {
-        zooms.first { time >= $0.start - 0.001 && time <= $0.start + $0.duration + 0.001 }
-    }
+    private func approximateMotionBlurRadius(state: RenderFrameState, frameSize: CGSize) -> CGFloat {
+        let strength = state.motionBlurAmount
+        guard strength > 0.001 else { return 0 }
 
-    private func liveZoom(zoom: ZoomKeyframe?, time: Double) -> CGFloat {
-        guard let zoom else { return 1 }
-        let t = min(max((time - zoom.start) / max(0.001, zoom.duration), 0), 1)
-        let envelope = zoomEnvelope(progress: t, zoom: zoom)
-        return CGFloat(pow(zoom.scale, envelope))
-    }
-
-    private func zoomCenterAmount(zoom: ZoomKeyframe?, time: Double) -> CGFloat {
-        guard let zoom else { return 0 }
-        let t = min(max((time - zoom.start) / max(0.001, zoom.duration), 0), 1)
-        return zoomPanAmount(progress: t, zoom: zoom)
-    }
-
-    private func resolvedZoomCenter(zoom: ZoomKeyframe?, time: Double) -> CGPoint {
-        guard let zoom else {
-            return CGPoint(x: Double(session.width) / 2, y: Double(session.height) / 2)
+        let frameDuration = 1.0 / Double(max(1, session.settings.frameRate))
+        let before = RenderFrameStateBuilder.make(
+            session: session,
+            outputTime: max(0, state.outputTime - frameDuration * 0.5),
+            sourceTime: max(0, state.sourceTime - frameDuration * 0.5),
+            canvasSize: state.canvasSize
+        )
+        let after = RenderFrameStateBuilder.make(
+            session: session,
+            outputTime: state.outputTime + frameDuration * 0.5,
+            sourceTime: min(session.approximateDuration, state.sourceTime + frameDuration * 0.5),
+            canvasSize: state.canvasSize
+        )
+        let scale = min(
+            frameSize.width / max(1, CGFloat(session.width)),
+            frameSize.height / max(1, CGFloat(session.height))
+        )
+        let cameraDelta = hypot(after.cameraCenter.x - before.cameraCenter.x, after.cameraCenter.y - before.cameraCenter.y) * scale
+        let cursorDelta: CGFloat
+        if let a = before.cursor?.position, let b = after.cursor?.position {
+            cursorDelta = hypot(b.x - a.x, b.y - a.y) * scale
+        } else {
+            cursorDelta = 0
         }
-        return cinematicZoomCameraCenter(for: zoom, at: time, session: session)
+        let zoomDelta = CGFloat(abs(after.zoom - before.zoom)) * min(frameSize.width, frameSize.height) * 0.45
+        let radius = (cameraDelta * 0.06 + cursorDelta * 0.035 + zoomDelta) * CGFloat(strength)
+        return radius > 0.18 ? min(9, radius) : 0
     }
+}
 
-    private func updatePreviewFrameState(time: Double) {
-        let zoom = activeZoom(at: time, zooms: session.zooms)
-        let cursor = session.edit.showCursor
-            ? smoothedCursor(
-                at: time,
-                samples: session.cursorSamples,
-                smoothing: session.settings.cursorSmoothing,
-                window: session.settings.cursorSmoothingWindow
-              )
-            : nil
-        let clicks = session.edit.showClickRipples
-            ? session.clicks.compactMap { click -> ClickEffectState? in
-                let age = time - click.time
-                guard age >= 0, age < ExportRippleParams.window else { return nil }
-                return ClickEffectState(
-                    position: CGPoint(x: click.x, y: click.y),
-                    age: age,
-                    duration: ExportRippleParams.window
-                )
-              }
-            : []
-        previewRender.update(state: PreviewFrameState(
-            time: time,
-            isPlaying: controller.isPlaying,
-            isScrubbing: previewRender.isScrubbing,
-            zoom: Double(liveZoom(zoom: zoom, time: time)),
-            cameraCenter: resolvedZoomCenter(zoom: zoom, time: time),
-            cursorPosition: cursor,
-            activeClicks: clicks,
-            motionBlurAmount: session.edit.motionBlur
-        ))
+/// Renders an `NSImage` constrained to the offered size with explicit fit + focal-point control.
+/// Wraps the image in its own clipped GeometryReader so the image can never push its parent
+/// container's frame larger than what was offered (which previously caused the background image
+/// to overflow into the timeline / inspector).
+struct BackgroundImageView: View {
+    let image: NSImage
+    let fit: BackgroundImageFit
+    let focusX: Double
+    let focusY: Double
+    var fallbackColor: Color = .black
+
+    var body: some View {
+        GeometryReader { proxy in
+            let containerW = proxy.size.width
+            let containerH = proxy.size.height
+            let imgSize = image.size
+            let imgAspect = imgSize.width / max(0.0001, imgSize.height)
+            let containerAspect = containerW / max(0.0001, containerH)
+
+            ZStack {
+                fallbackColor
+
+                let (scaledW, scaledH): (CGFloat, CGFloat) = {
+                    switch fit {
+                    case .fill:
+                        if imgAspect > containerAspect {
+                            // Image wider than container — fit to height, crop sides.
+                            return (containerH * imgAspect, containerH)
+                        } else {
+                            return (containerW, containerW / imgAspect)
+                        }
+                    case .fit:
+                        if imgAspect > containerAspect {
+                            return (containerW, containerW / imgAspect)
+                        } else {
+                            return (containerH * imgAspect, containerH)
+                        }
+                    }
+                }()
+
+                let overflowX = scaledW - containerW
+                let overflowY = scaledH - containerH
+                let fx = CGFloat(min(max(focusX, 0), 1))
+                let fy = CGFloat(min(max(focusY, 0), 1))
+                let centerX = overflowX > 0
+                    ? containerW / 2 + overflowX * (0.5 - fx)
+                    : containerW / 2
+                let centerY = overflowY > 0
+                    ? containerH / 2 + overflowY * (0.5 - fy)
+                    : containerH / 2
+
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: scaledW, height: scaledH)
+                    .position(x: centerX, y: centerY)
+            }
+            .frame(width: containerW, height: containerH)
+            .clipped()
+        }
     }
 }
 
@@ -627,6 +693,107 @@ enum ExportRippleParams {
     }
 }
 
+// MARK: - Fullscreen control bar
+
+private struct FullscreenControlBar: View {
+    let session: RecordingSession
+    @ObservedObject var controller: PlaybackController
+    @Binding var playbackTime: Double
+    let onExit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(timecode(max(0, playbackTime - session.timelineContentStart)))
+                .font(.system(size: 13, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .fixedSize()
+
+            scrubSlider
+
+            Text(timecode(session.timelineVisibleDuration))
+                .font(.system(size: 13, weight: .regular))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                .fixedSize()
+
+            iconButton(systemImage: "backward.frame.fill", help: "Frame back (←)") {
+                controller.pause()
+                controller.step(by: -1)
+                playbackTime = controller.currentTime
+            }
+
+            Button {
+                controller.togglePlay()
+            } label: {
+                ZStack {
+                    Circle().fill(Color.white)
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.black)
+                        .offset(x: controller.isPlaying ? 0 : 1)
+                }
+                .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .help("Play/Pause (Space)")
+
+            iconButton(systemImage: "forward.frame.fill", help: "Frame forward (→)") {
+                controller.pause()
+                controller.step(by: 1)
+                playbackTime = controller.currentTime
+            }
+
+            iconButton(systemImage: "arrow.down.right.and.arrow.up.left", help: "Exit fullscreen (F / Esc)", action: onExit)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 18, x: 0, y: 8)
+        .frame(maxWidth: 1100)
+        .padding(.horizontal, 32)
+    }
+
+    private var scrubSlider: some View {
+        let start = session.timelineContentStart
+        let end = max(start + 0.001, session.timelineContentEnd)
+        let binding = Binding<Double>(
+            get: { min(max(playbackTime, start), end) },
+            set: { newValue in
+                let clamped = min(max(newValue, start), end)
+                playbackTime = clamped
+                controller.pause()
+                controller.seek(to: clamped, precise: false)
+            }
+        )
+        return Slider(value: binding, in: start...end)
+            .controlSize(.small)
+            .tint(.white)
+            .frame(minWidth: 320)
+    }
+
+    private func iconButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
 // MARK: - Timeline
 
 private struct TimelinePanel: View {
@@ -635,12 +802,13 @@ private struct TimelinePanel: View {
     @ObservedObject var controller: PlaybackController
     @Binding var playbackTime: Double
     @Binding var selectedZoomID: UUID?
-    @ObservedObject var previewRender: PreviewRenderController
+    @Binding var isPreviewFullscreen: Bool
+    let onToggleFullscreen: () -> Void
     @State private var filmstripSelected = false
     @State private var timelineZoomScale: Double = 1.0
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             playbackBar
             timelineActionBar
             GeometryReader { proxy in
@@ -654,71 +822,31 @@ private struct TimelinePanel: View {
             }
             .frame(height: 152)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     private var playbackBar: some View {
-        HStack(spacing: 12) {
-            Text(timecode(max(0, playbackTime - session.timelineContentStart)))
-                .font(.system(.body, design: .monospaced))
-                .frame(width: 72, alignment: .leading)
-            Text("/")
-                .foregroundStyle(.secondary)
-            Text(timecode(session.timelineVisibleDuration))
-                .foregroundStyle(.secondary)
-                .font(.system(.body, design: .monospaced))
-                .frame(width: 72, alignment: .leading)
+        HStack(spacing: 16) {
+            timeReadout
 
-            Spacer()
+            Spacer(minLength: 12)
 
-            Button {
-                controller.seek(to: session.timelineContentStart)
-                playbackTime = controller.currentTime
-            } label: {
-                Image(systemName: "backward.end.fill")
+            transportCluster
+
+            Spacer(minLength: 12)
+
+            Button(action: onToggleFullscreen) {
+                Image(systemName: isPreviewFullscreen
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .help("Jump to clip start")
-
-            Button {
-                controller.pause()
-                controller.step(by: -1)
-                playbackTime = controller.currentTime
-            } label: {
-                Image(systemName: "backward.frame.fill")
-            }
-            .buttonStyle(.borderless)
-            .help("Frame back (←)")
-
-            Button {
-                controller.togglePlay()
-            } label: {
-                Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 28)
-            }
-            .buttonStyle(.borderedProminent)
-            .help("Play/Pause (Space)")
-
-            Button {
-                controller.pause()
-                controller.step(by: 1)
-                playbackTime = controller.currentTime
-            } label: {
-                Image(systemName: "forward.frame.fill")
-            }
-            .buttonStyle(.borderless)
-            .help("Frame forward (→)")
-
-            Button {
-                controller.seek(to: max(session.timelineContentStart, session.timelineContentEnd - 0.02))
-                playbackTime = controller.currentTime
-            } label: {
-                Image(systemName: "forward.end.fill")
-            }
-            .buttonStyle(.borderless)
-
-            Spacer()
+            .buttonStyle(.plain)
+            .help(isPreviewFullscreen ? "Exit fullscreen (F / Esc)" : "Play preview fullscreen (F)")
         }
         .onChange(of: controller.currentTime) { _, newTime in
             if abs(newTime - playbackTime) > 0.005 {
@@ -733,8 +861,79 @@ private struct TimelinePanel: View {
         }
     }
 
+    private var timeReadout: some View {
+        HStack(spacing: 6) {
+            Text(timecode(max(0, playbackTime - session.timelineContentStart)))
+                .font(.system(size: 13, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+            Text("/")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.tertiary)
+            Text(timecode(session.timelineVisibleDuration))
+                .font(.system(size: 13, weight: .regular))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize()
+    }
+
+    private var transportCluster: some View {
+        HStack(spacing: 2) {
+            transportIconButton(systemImage: "backward.end.fill", help: "Jump to clip start") {
+                controller.seek(to: session.timelineContentStart)
+                playbackTime = controller.currentTime
+            }
+            transportIconButton(systemImage: "backward.frame.fill", help: "Frame back (←)") {
+                controller.pause()
+                controller.step(by: -1)
+                playbackTime = controller.currentTime
+            }
+
+            Button {
+                controller.togglePlay()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.white)
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.black)
+                        .offset(x: controller.isPlaying ? 0 : 1)
+                }
+                .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .help("Play/Pause (Space)")
+            .padding(.horizontal, 6)
+
+            transportIconButton(systemImage: "forward.frame.fill", help: "Frame forward (→)") {
+                controller.pause()
+                controller.step(by: 1)
+                playbackTime = controller.currentTime
+            }
+            transportIconButton(systemImage: "forward.end.fill", help: "Jump to clip end") {
+                controller.seek(to: max(session.timelineContentStart, session.timelineContentEnd - 0.02))
+                playbackTime = controller.currentTime
+            }
+        }
+        .fixedSize()
+    }
+
+    private func transportIconButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
     private var timelineActionBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             timelineIconButton(
                 systemImage: "plus",
                 help: "Add zoom at playhead (Z)",
@@ -767,7 +966,7 @@ private struct TimelinePanel: View {
                 action: { model.deleteSelectedZooms() }
             )
 
-            Divider().frame(height: 20)
+            Divider().frame(height: 16).padding(.horizontal, 4)
 
             timelineIconButton(
                 systemImage: "square.split.2x1",
@@ -780,7 +979,6 @@ private struct TimelinePanel: View {
 
             timelineZoomControls
         }
-        .controlSize(.small)
     }
 
     private func timelineIconButton(
@@ -792,40 +990,53 @@ private struct TimelinePanel: View {
     ) -> some View {
         Button(role: role, action: action) {
             Image(systemName: systemImage)
-                .frame(width: 22, height: 20)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(disabled ? AnyShapeStyle(.tertiary) :
+                                role == .destructive ? AnyShapeStyle(Color.red.opacity(0.85)) :
+                                AnyShapeStyle(.secondary))
+                .frame(width: 26, height: 24)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .disabled(disabled)
         .help(help)
         .accessibilityLabel(help)
     }
 
     private var timelineZoomControls: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Button {
                 timelineZoomScale = max(0.5, (timelineZoomScale - 0.25).rounded(toPlaces: 2))
             } label: {
                 Image(systemName: "minus")
-                    .frame(width: 18)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .help("Zoom timeline out")
 
             Image(systemName: "magnifyingglass")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 2)
 
-            Slider(value: $timelineZoomScale, in: 0.5...4, step: 0.05)
-                .frame(width: 120)
+            Slider(value: $timelineZoomScale, in: 0.5...4)
+                .controlSize(.mini)
+                .frame(width: 110)
                 .help("Timeline horizontal zoom")
 
             Button {
                 timelineZoomScale = 1
             } label: {
                 Image(systemName: "arrow.counterclockwise")
-                    .frame(width: 18)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(abs(timelineZoomScale - 1) < 0.001 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .disabled(abs(timelineZoomScale - 1) < 0.001)
             .help("Reset timeline zoom")
 
@@ -833,17 +1044,20 @@ private struct TimelinePanel: View {
                 timelineZoomScale = min(4, (timelineZoomScale + 0.25).rounded(toPlaces: 2))
             } label: {
                 Image(systemName: "plus")
-                    .frame(width: 18)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .help("Zoom timeline in")
 
             Text("\(timelineZoomScale, specifier: "%.1f")×")
-                .font(.caption.monospacedDigit())
+                .font(.system(size: 11).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 34, alignment: .trailing)
+                .padding(.leading, 2)
         }
-        .controlSize(.small)
     }
 
     private func timelineTracks(width: Double) -> some View {
@@ -851,45 +1065,19 @@ private struct TimelinePanel: View {
             let duration = max(1, session.approximateDuration)
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 5) {
-                    PreviewCacheStrip(
-                        cachedBuckets: model.previewCache.cachedBuckets,
-                        renderingBuckets: model.previewCache.renderingBuckets,
-                        bucketDuration: model.previewCache.bucketDuration,
-                        duration: duration,
-                        width: width,
-                        height: 5
-                    )
                     FilmstripTimelineTrack(
                         session: session,
                         duration: duration,
                         width: width,
                         height: 68,
                         filmstripSelected: $filmstripSelected,
-                        onScrubBegan: {
-                            previewRender.setScrubbing(
-                                true,
-                                session: session,
-                                time: playbackTime,
-                                isPlaying: controller.isPlaying,
-                                cache: model.previewCache,
-                                renderer: model.renderer
-                            )
-                        },
+                        onScrubBegan: {},
                         scrubTo: { t in
                             playbackTime = t
                             controller.pause()
                             controller.seek(to: t, precise: false)
                         },
-                        onScrubEnded: {
-                            previewRender.setScrubbing(
-                                false,
-                                session: session,
-                                time: playbackTime,
-                                isPlaying: controller.isPlaying,
-                                cache: model.previewCache,
-                                renderer: model.renderer
-                            )
-                        },
+                        onScrubEnded: {},
                         onSelectFilmstrip: {
                             filmstripSelected = true
                             model.selectOnlyZoom(nil)
@@ -927,28 +1115,10 @@ private struct TimelinePanel: View {
     private func scrubGesture(width: Double, duration: Double) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                previewRender.setScrubbing(
-                    true,
-                    session: session,
-                    time: playbackTime,
-                    isPlaying: controller.isPlaying,
-                    cache: model.previewCache,
-                    renderer: model.renderer
-                )
                 let t = min(max(0, value.location.x / width * duration), duration)
                 playbackTime = t
                 controller.pause()
                 controller.seek(to: t, precise: false)
-            }
-            .onEnded { _ in
-                previewRender.setScrubbing(
-                    false,
-                    session: session,
-                    time: playbackTime,
-                    isPlaying: controller.isPlaying,
-                    cache: model.previewCache,
-                    renderer: model.renderer
-                )
             }
     }
 
@@ -965,34 +1135,6 @@ private extension Double {
 }
 
 // MARK: - Tracks
-
-private struct PreviewCacheStrip: View {
-    let cachedBuckets: Set<Int>
-    let renderingBuckets: Set<Int>
-    let bucketDuration: Double
-    let duration: Double
-    let width: Double
-    let height: Double
-
-    var body: some View {
-        Canvas { context, _ in
-            let totalBuckets = max(1, Int(ceil(duration / bucketDuration)))
-            let bucketWidth = width / Double(totalBuckets)
-            for bucket in cachedBuckets {
-                let rect = CGRect(x: Double(bucket) * bucketWidth, y: 0, width: max(1.5, bucketWidth), height: height)
-                context.fill(Path(rect), with: .color(.green.opacity(0.78)))
-            }
-            for bucket in renderingBuckets {
-                let rect = CGRect(x: Double(bucket) * bucketWidth, y: 0, width: max(1.5, bucketWidth), height: height)
-                context.fill(Path(rect), with: .color(.yellow.opacity(0.9)))
-            }
-        }
-        .frame(width: width, height: height)
-        .background(Color.secondary.opacity(0.16))
-        .clipShape(RoundedRectangle(cornerRadius: 2))
-        .help("Preview cache: green is cached, yellow is rendering")
-    }
-}
 
 private struct FilmstripTimelineTrack: View {
     @EnvironmentObject var model: AppViewModel
@@ -1459,7 +1601,7 @@ private struct ZoomBlock: View {
                     LinearGradient(
                         colors: [
                             Color.accentColor.opacity(selected ? 0.42 : 0.24),
-                            Color.accentColor.opacity(selected ? 0.12 : 0.05)
+                            Color.accentColor.opacity(selected ? 0.24 : 0.1)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -2225,19 +2367,32 @@ private struct DeadZoneEditor: View {
                 .contentShape(Rectangle())
                 .gesture(dragGesture(size: size))
                 .onTapGesture(count: 2) {
-                    var u = zoom
-                    u.followCursorDeadZoneWidth = 0.35
-                    u.followCursorDeadZoneHeight = 0.30
-                    onBegin()
-                    onCommit(u)
+                    resetDeadZone()
                 }
             }
             .aspectRatio(max(1, width) / max(1, height), contentMode: .fit)
             .frame(maxHeight: 120)
-            Text("Drag the handle to resize. Double-click to reset.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Drag the handle to resize.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    resetDeadZone()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                }
+                .controlSize(.small)
+            }
         }
+    }
+
+    private func resetDeadZone() {
+        var updated = zoom
+        updated.followCursorDeadZoneWidth = 0.35
+        updated.followCursorDeadZoneHeight = 0.30
+        onBegin()
+        onCommit(updated)
     }
 
     private func dragGesture(size: CGSize) -> some Gesture {
@@ -2538,6 +2693,7 @@ private struct PolishInspector: View {
         case .none: return .none
         case .solid: return .solid
         case .gradient: return .gradient
+        case .image: return .image
         }
     }
 
@@ -2550,6 +2706,7 @@ private struct PolishInspector: View {
             case (.none, .none): return true
             case (.solid, .solid): return true
             case (.gradient, .gradient): return true
+            case (.image, .image): return true
             default: return false
             }
         }
@@ -2571,7 +2728,7 @@ private struct PolishInspector: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            case .solid, .gradient:
+            case .solid, .gradient, .image:
                 if !visiblePresets.isEmpty {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 70))], spacing: 8) {
                         ForEach(visiblePresets.indices, id: \.self) { idx in
@@ -2616,13 +2773,17 @@ private struct PolishInspector: View {
             Divider()
 
             Text("Motion").font(.headline)
-            SliderRow(label: "Blur", value: edit.motionBlur, range: 0...1, suffix: "", defaultValue: EditSettings().motionBlur) {
+            SliderRow(label: "Blur", value: edit.motionBlur, range: 0...2, suffix: "", defaultValue: EditSettings().motionBlur) {
                 var e = edit; e.motionBlur = $0; model.updateEditSettings(e)
             } onCommit: {
                 var e = edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
             } onBegin: { model.beginUndoTransaction() } onReset: {
                 var e = edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
             }
+            Text("The editor uses a lightweight approximation; final export renders smoother, higher-quality motion blur.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -2635,6 +2796,7 @@ private struct PolishInspector: View {
                 case .none: return .none
                 case .solid: return .solid
                 case .gradient: return .gradient
+                case .image: return .image
                 }
             },
             set: { mode in
@@ -2652,6 +2814,10 @@ private struct PolishInspector: View {
                             top: BackgroundStyle.RGB(red: 0.18, green: 0.19, blue: 0.22),
                             bottom: BackgroundStyle.RGB(red: 0.08, green: 0.09, blue: 0.11)
                         )
+                    }
+                case .image:
+                    if case .image = e.background {} else {
+                        e.background = .image(path: "")
                     }
                 }
                 model.updateEditSettings(e, recordUndo: true)
@@ -2693,7 +2859,123 @@ private struct PolishInspector: View {
                     }
                 ))
             }
+        case .image(let path):
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Button {
+                        chooseBackgroundImage()
+                    } label: {
+                        Label(path.isEmpty ? "Choose Image" : "Change Image", systemImage: "photo")
+                    }
+                    .controlSize(.small)
+
+                    if !path.isEmpty {
+                        Button {
+                            var e = edit
+                            e.background = .image(path: "")
+                            model.updateEditSettings(e, recordUndo: true)
+                        } label: {
+                            Label("Remove", systemImage: "xmark")
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                if path.isEmpty {
+                    Text("Choose a local image to use as an aspect-filled canvas background.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(URL(fileURLWithPath: path).lastPathComponent)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    imagePositioningControls(path: path)
+                }
+            }
         }
+    }
+
+    @ViewBuilder
+    private func imagePositioningControls(path: String) -> some View {
+        let image = NSImage(contentsOfFile: path)
+        let valid = image?.isValid ?? false
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Fit").font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { edit.imageFit },
+                    set: { newValue in
+                        var e = edit
+                        e.imageFit = newValue
+                        model.updateEditSettings(e, recordUndo: true)
+                    }
+                )) {
+                    ForEach(BackgroundImageFit.allCases) { fit in
+                        Text(fit.title).tag(fit)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 130)
+            }
+
+            if edit.imageFit == .fill, valid, let img = image {
+                HStack(alignment: .top, spacing: 12) {
+                    ImageFocusPicker(
+                        image: img,
+                        focusX: edit.imageFocusX,
+                        focusY: edit.imageFocusY,
+                        onChange: { fx, fy in
+                            var e = edit
+                            e.imageFocusX = fx
+                            e.imageFocusY = fy
+                            model.updateEditSettings(e)
+                        },
+                        onCommit: {
+                            model.endUndoTransaction()
+                        },
+                        onBegin: {
+                            model.beginUndoTransaction()
+                        }
+                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Position").font(.subheadline).foregroundStyle(.secondary)
+                        FocusPresetGrid(
+                            focusX: edit.imageFocusX,
+                            focusY: edit.imageFocusY,
+                            onPick: { fx, fy in
+                                var e = edit
+                                e.imageFocusX = fx
+                                e.imageFocusY = fy
+                                model.updateEditSettings(e, recordUndo: true)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+    }
+
+    private func chooseBackgroundImage() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Background Image"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.image]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var e = edit
+        e.background = .image(path: url.path)
+        model.updateEditSettings(e, recordUndo: true)
     }
 
     private func rgb(from color: Color) -> BackgroundStyle.RGB {
@@ -2706,13 +2988,14 @@ private struct PolishInspector: View {
     }
 
     private enum BackgroundMode: String, CaseIterable, Identifiable {
-        case none, solid, gradient
+        case none, solid, gradient, image
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .none: return "Video"
+            case .none: return "Original"
             case .solid: return "Solid"
             case .gradient: return "Gradient"
+            case .image: return "Image"
             }
         }
     }
@@ -2737,6 +3020,20 @@ private struct BackgroundSwatch: View {
                         Color(red: r, green: g, blue: b)
                     case .gradient(let top, let bot):
                         LinearGradient(colors: [top.color, bot.color], startPoint: .top, endPoint: .bottom)
+                    case .image(let path):
+                        if let image = NSImage(contentsOfFile: path), image.isValid {
+                            BackgroundImageView(
+                                image: image,
+                                fit: .fill,
+                                focusX: 0.5,
+                                focusY: 0.5,
+                                fallbackColor: .black
+                            )
+                        } else {
+                            Color.black
+                            Image(systemName: "photo")
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
                     }
                 }
                 .frame(height: 38)
@@ -2749,6 +3046,130 @@ private struct BackgroundSwatch: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Visual draggable focal-point picker over a thumbnail of the chosen background image.
+private struct ImageFocusPicker: View {
+    let image: NSImage
+    let focusX: Double
+    let focusY: Double
+    let onChange: (Double, Double) -> Void
+    let onCommit: () -> Void
+    let onBegin: () -> Void
+
+    @State private var dragging = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack(alignment: .topLeading) {
+                BackgroundImageView(
+                    image: image,
+                    fit: .fill,
+                    focusX: 0.5,
+                    focusY: 0.5,
+                    fallbackColor: .black
+                )
+                .overlay(Color.black.opacity(0.18))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                // Crosshair guides
+                Path { p in
+                    let cx = focusX * size.width
+                    let cy = focusY * size.height
+                    p.move(to: CGPoint(x: cx, y: 0))
+                    p.addLine(to: CGPoint(x: cx, y: size.height))
+                    p.move(to: CGPoint(x: 0, y: cy))
+                    p.addLine(to: CGPoint(x: size.width, y: cy))
+                }
+                .stroke(Color.white.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                .allowsHitTesting(false)
+
+                // The handle
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 14, height: 14)
+                    .overlay(Circle().fill(Color.accentColor).padding(3))
+                    .shadow(color: .black.opacity(0.45), radius: 3, x: 0, y: 1)
+                    .position(
+                        x: focusX * size.width,
+                        y: focusY * size.height
+                    )
+                    .allowsHitTesting(false)
+            }
+            .frame(width: size.width, height: size.height)
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !dragging {
+                            dragging = true
+                            onBegin()
+                        }
+                        let fx = min(max(value.location.x / size.width, 0), 1)
+                        let fy = min(max(value.location.y / size.height, 0), 1)
+                        onChange(fx, fy)
+                    }
+                    .onEnded { _ in
+                        dragging = false
+                        onCommit()
+                    }
+            )
+        }
+        .frame(width: 130, height: 90)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+/// 3×3 grid of preset focal-point positions (top-left, top-center, … bottom-right).
+private struct FocusPresetGrid: View {
+    let focusX: Double
+    let focusY: Double
+    let onPick: (Double, Double) -> Void
+
+    private let positions: [(Double, Double)] = [
+        (0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
+        (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
+        (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)
+    ]
+
+    var body: some View {
+        Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+            ForEach(0..<3) { row in
+                GridRow {
+                    ForEach(0..<3) { col in
+                        let idx = row * 3 + col
+                        let (fx, fy) = positions[idx]
+                        let isSelected =
+                            abs(focusX - fx) < 0.05 && abs(focusY - fy) < 0.05
+                        Button {
+                            onPick(fx, fy)
+                        } label: {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.12))
+                                .frame(width: 18, height: 14)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                        .strokeBorder(Color.white.opacity(isSelected ? 0.0 : 0.05), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Anchor to \(positionName(fx, fy))")
+                    }
+                }
+            }
+        }
+    }
+
+    private func positionName(_ fx: Double, _ fy: Double) -> String {
+        let v = fy < 0.34 ? "top" : (fy > 0.66 ? "bottom" : "middle")
+        let h = fx < 0.34 ? "left" : (fx > 0.66 ? "right" : "center")
+        return "\(v) \(h)"
     }
 }
 
@@ -3178,15 +3599,6 @@ private struct ExportInspector: View {
                 .disabled(renderer.isRendering)
             }
 
-            Button {
-                model.previewCache.renderAll(session: session, renderer: renderer)
-            } label: {
-                Label("Pre-render preview cache", systemImage: "film.stack")
-                    .frame(maxWidth: .infinity)
-            }
-            .controlSize(.regular)
-            .help("Pre-render frames so the editor's Final Preview plays back smoothly")
-
             if let rendered = session.renderedVideoURL {
                 renderedFileCard(url: rendered)
             }
@@ -3401,7 +3813,7 @@ private func timecode(_ seconds: Double) -> String {
 
 struct KeyEventCatcher: NSViewRepresentable {
     enum Key {
-        case space, leftArrow, rightArrow, shiftLeft, shiftRight, home, end, z, s, c, duplicateZoom, delete, undo, redo
+        case space, leftArrow, rightArrow, shiftLeft, shiftRight, home, end, f, z, s, c, duplicateZoom, delete, undo, redo, escape
     }
 
     let action: (Key) -> Bool
@@ -3454,6 +3866,7 @@ final class KeyCatcherView: NSView {
             case 115: if handler(.home) { return nil }
             case 119: if handler(.end) { return nil }
             case 51, 117: if handler(.delete) { return nil }
+            case 53: if handler(.escape) { return nil }
             default:
                 let dup = PreferencesStore.shared.preferences.duplicateZoomEditorHotkey
                 if dup.matchesKeyDown(event), handler(.duplicateZoom) { return nil }
@@ -3461,6 +3874,7 @@ final class KeyCatcherView: NSView {
                     if handler(shift ? .redo : .undo) { return nil }
                 }
                 if cmd { break }
+                if chars.lowercased() == "f" { if handler(.f) { return nil } }
                 if chars.lowercased() == "z" { if handler(.z) { return nil } }
                 if chars.lowercased() == "s" { if handler(.s) { return nil } }
                 if chars.lowercased() == "c" { if handler(.c) { return nil } }

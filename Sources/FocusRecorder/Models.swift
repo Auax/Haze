@@ -20,20 +20,6 @@ enum ResolutionPreset: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 }
 
-enum PreviewRenderMode: String, Codable, CaseIterable, Identifiable {
-    case approximate
-    case highFidelity
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .approximate: return "Approximate"
-        case .highFidelity: return "High Fidelity"
-        }
-    }
-}
-
 enum CursorSprite: String, Identifiable, Codable {
     case system
     case arrow
@@ -493,6 +479,7 @@ enum BackgroundStyle: Codable, Equatable {
     case none
     case solid(red: Double, green: Double, blue: Double)
     case gradient(top: RGB, bottom: RGB)
+    case image(path: String)
 
     struct RGB: Codable, Equatable, Hashable {
         var red: Double
@@ -522,6 +509,17 @@ extension BackgroundStyle.RGB {
     var ciColor: CIColor { CIColor(red: red, green: green, blue: blue, alpha: 1) }
 }
 
+enum BackgroundImageFit: String, Codable, CaseIterable, Identifiable {
+    case fill, fit
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .fill: return "Fill"
+        case .fit:  return "Fit"
+        }
+    }
+}
+
 struct EditSettings: Codable, Equatable {
     var background: BackgroundStyle = .gradient(
         top:    BackgroundStyle.RGB(red: 0.18, green: 0.19, blue: 0.22),
@@ -537,9 +535,16 @@ struct EditSettings: Codable, Equatable {
     var showClickRipples: Bool = true
     /// Strength of zoom/frame motion blur. 0 disables the effect.
     var motionBlur: Double = 0
+    /// How the image background fits into the canvas (fill or fit). Only used for `.image` style.
+    var imageFit: BackgroundImageFit = .fill
+    /// Horizontal focal point (0 = left, 0.5 = center, 1 = right) for cropping/positioning the image.
+    var imageFocusX: Double = 0.5
+    /// Vertical focal point (0 = top, 0.5 = center, 1 = bottom) for cropping/positioning the image.
+    var imageFocusY: Double = 0.5
 
     enum CodingKeys: String, CodingKey {
-        case background, padding, cornerRadius, shadow, showCursor, showClickRipples, motionBlur
+        case background, padding, cornerRadius, shadow, showCursor, showClickRipples, motionBlur,
+             imageFit, imageFocusX, imageFocusY
     }
 
     init() {}
@@ -554,6 +559,9 @@ struct EditSettings: Codable, Equatable {
         showCursor = try container.decodeIfPresent(Bool.self, forKey: .showCursor) ?? fallback.showCursor
         showClickRipples = try container.decodeIfPresent(Bool.self, forKey: .showClickRipples) ?? fallback.showClickRipples
         motionBlur = try container.decodeIfPresent(Double.self, forKey: .motionBlur) ?? fallback.motionBlur
+        imageFit = try container.decodeIfPresent(BackgroundImageFit.self, forKey: .imageFit) ?? fallback.imageFit
+        imageFocusX = try container.decodeIfPresent(Double.self, forKey: .imageFocusX) ?? fallback.imageFocusX
+        imageFocusY = try container.decodeIfPresent(Double.self, forKey: .imageFocusY) ?? fallback.imageFocusY
     }
 
     func encode(to encoder: Encoder) throws {
@@ -565,6 +573,9 @@ struct EditSettings: Codable, Equatable {
         try container.encode(showCursor, forKey: .showCursor)
         try container.encode(showClickRipples, forKey: .showClickRipples)
         try container.encode(motionBlur, forKey: .motionBlur)
+        try container.encode(imageFit, forKey: .imageFit)
+        try container.encode(imageFocusX, forKey: .imageFocusX)
+        try container.encode(imageFocusY, forKey: .imageFocusY)
     }
 }
 

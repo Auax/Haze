@@ -25,6 +25,7 @@ fileprivate struct CursorSpriteAsset {
 
 final class CursorOverlay {
     static let shared = CursorOverlay()
+    static let renderVerticalLift: CGFloat = 10
 
     private struct CustomKey: Hashable {
         let path: String

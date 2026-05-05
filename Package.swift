@@ -25,9 +25,6 @@ let package = Package(
                 .linkedFramework("CoreImage"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("CoreVideo"),
-                .linkedFramework("Metal"),
-                .linkedFramework("MetalKit"),
-                .linkedFramework("QuartzCore"),
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("SwiftUI")
             ]
