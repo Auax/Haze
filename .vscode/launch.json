@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:find-skills-users-auax-agents-skills}",
+            "name": "Debug FocusRecorder",
+            "target": "FocusRecorder",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug FocusRecorder"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:find-skills-users-auax-agents-skills}",
+            "name": "Release FocusRecorder",
+            "target": "FocusRecorder",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release FocusRecorder"
+        }
+    ]
+}

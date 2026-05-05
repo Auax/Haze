@@ -1,0 +1,101 @@
+# =========================
+# Xcode / SwiftPM
+# =========================
+DerivedData/
+.build/
+Packages/
+Package.resolved
+
+# Xcode user data
+*.xcworkspace/xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+
+# Swift Package Manager (legacy)
+.swiftpm/
+
+# =========================
+# macOS
+# =========================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+
+# =========================
+# Build / Products
+# =========================
+build/
+Build/
+*.app
+*.dSYM
+*.ipa
+
+# =========================
+# Logs
+# =========================
+*.log
+*.trace
+
+# =========================
+# Temporary / Cache files
+# =========================
+*.tmp
+*.temp
+*.swp
+*.lock
+
+# =========================
+# Preview / Render Cache (IMPORTANT for your app)
+# =========================
+# If you later add preview cache, proxy media, or render cache:
+preview-cache/
+render-cache/
+proxy-media/
+thumbnails/
+*.png
+*.jpg
+*.jpeg
+
+# =========================
+# Exported media (optional)
+# =========================
+# Uncomment if you don’t want exports in git
+# exports/
+# *.mov
+# *.mp4
+
+# =========================
+# Metal / Shader intermediates
+# =========================
+*.air
+*.metallib
+
+# =========================
+# Core Data
+# =========================
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.local
+
+# =========================
+# Misc
+# =========================
+*.orig
+*.rej
