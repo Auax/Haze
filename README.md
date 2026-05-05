@@ -2,140 +2,122 @@
 
 # Focus Recorder
 
-Native macOS screen recorder for polished tutorials and demos, with smooth cursor rendering and editable zoom timeline.
-
-[macOS](#)
-[Swift](#)
-[Platform](#)
+A native macOS screen recorder for clean product demos, tutorials, cursor motion, and cinematic zooms.
 
 
+
+[Features](#features) · [Quick Start](#quick-start) · [Permissions](#permissions) · [Roadmap](#roadmap)
 
 ---
 
-## Preview
+## Overview
 
-> Replace the placeholder files below with your own screenshots/GIFs for GitHub-ready presentation.
+Focus Recorder is a lightweight macOS app inspired by Screen Studio. It captures your screen, tracks cursor movement, suggests smooth zooms automatically, and renders a final video with polished cursor and zoom effects.
 
-Focus Recorder Hero
-Focus Recorder Timeline
+It is designed for people who record product walkthroughs, coding demos, tutorials, bug reports, or short visual explanations and want something more polished than the default macOS recorder.
 
----
 
-## Table of Contents
-
-- [Why Focus Recorder](#why-focus-recorder)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Quick Start](#quick-start)
-- [Permissions](#permissions)
-- [Output](#output)
-- [Project Structure](#project-structure)
-- [Roadmap](#roadmap)
-
-## Why Focus Recorder
-
-Focus Recorder is a lightweight native recorder inspired by Screen Studio, built for creators who want:
-
-- fast setup with native performance
-- clean cursor visualization
-- zoom-driven storytelling
-- post-recording control without a heavy editor
 
 ## Features
 
-- Record full display, specific window, or manual region
-- Control output resolution, FPS, and bitrate
-- Store cursor motion in sidecar timeline data
-- Render smooth custom cursor overlay on export
-- Generate automatic cursor-follow zoom suggestions
-- Edit zoom keyframes in timeline UI
-- Export final rendered video with cursor + zoom effects
 
-## Tech Stack
+| Capture                     | Editing                 | Export                  |
+| --------------------------- | ----------------------- | ----------------------- |
+| Display recording           | Editable zoom keyframes | Rendered cursor overlay |
+| Window recording            | Timeline-based workflow | Smooth zoom animation   |
+| Region recording            | Auto zoom suggestions   | Configurable bitrate    |
+| FPS and resolution controls | Cursor timeline sidecar | Final video output      |
 
-- Swift Package Manager
-- SwiftUI + AppKit
-- ScreenCaptureKit + AVFoundation
-- CoreImage
 
-**Minimum OS:** macOS 15.0+
+## Built With
+
+
+
+Minimum target: **macOS 15.0+**
 
 ## Quick Start
 
-### Recommended (App Bundle)
-
-Use the packaged app for stable Screen Recording permissions:
+For the best development experience, run Focus Recorder as an app bundle. macOS Screen Recording permission is tied to the app identity, so the bundle flow is more reliable than `swift run`.
 
 ```bash
 scripts/package-app.sh
 open Build/FocusRecorder.app
 ```
 
-Why this is recommended:
+The package script builds and signs the app as:
 
-- uses stable bundle identifier: `local.focusrecorder.app`
-- macOS permission tracking remains consistent
-- fewer issues while iterating
+```text
+local.focusrecorder.app
+```
 
-### Alternative (Direct Run)
+You can also run directly during quick iteration:
 
 ```bash
 swift run FocusRecorder
 ```
 
-Good for quick local iteration, but less stable for permission-sensitive testing.
-
 ## Permissions
 
-On first capture, macOS asks for **Screen Recording** permission.
+macOS requires Screen Recording permission before capture can start.
 
 Recommended flow:
 
-1. Launch packaged app
-2. Trigger a recording
-3. Grant permission in System Settings
-4. Quit and relaunch app
+1. Open `Build/FocusRecorder.app`
+2. Start a recording
+3. Grant Screen Recording permission in System Settings
+4. Quit and reopen Focus Recorder
 
-If permissions get stuck (e.g. after older unsigned builds):
+If permissions get stuck after older builds or signing changes:
 
 ```bash
 scripts/reset-screen-recording-permission.sh
 ```
 
-Then relaunch, grant once, and reopen.
+Then open the app, grant permission again, quit, and relaunch.
 
 ## Output
 
-- Recordings and timeline sidecars: `~/Movies/FocusRecorder`
-- Exported videos include cursor overlay and zoom effects
+Recordings are saved to:
+
+```text
+~/Movies/FocusRecorder
+```
+
+The app stores raw recordings plus timeline sidecar data, then exports a rendered video with cursor and zoom effects applied.
 
 ## Project Structure
 
-- `Package.swift` - SwiftPM manifest and framework linking
-- `Sources/FocusRecorder/FocusRecorderApp.swift` - app entry point
-- `Sources/FocusRecorder/ContentView.swift` - main app UI and flow
-- `Sources/FocusRecorder/CaptureEngine.swift` - capture pipeline
-- `Sources/FocusRecorder/EditorView.swift` - timeline editor UI
-- `Sources/FocusRecorder/ExportRenderer.swift` - export renderer
-- `Sources/FocusRecorder/CursorOverlay.swift` - cursor compositing
-- `Sources/FocusRecorder/Models.swift` - settings, models, timeline types
-- `Sources/FocusRecorder/RegionPicker.swift` - region picker tooling
-- `scripts/package-app.sh` - build/sign app bundle
-- `scripts/reset-screen-recording-permission.sh` - reset TCC permission
+```text
+FocusRecorder
+├── Package.swift
+├── Sources/FocusRecorder
+│   ├── FocusRecorderApp.swift
+│   ├── ContentView.swift
+│   ├── CaptureEngine.swift
+│   ├── EditorView.swift
+│   ├── ExportRenderer.swift
+│   ├── CursorOverlay.swift
+│   ├── Models.swift
+│   └── RegionPicker.swift
+└── scripts
+    ├── package-app.sh
+    └── reset-screen-recording-permission.sh
+```
 
 ## Roadmap
 
-- Improve preview from thumbnails to true playback
-- Refine automatic zoom detection heuristics
-- Expand timeline editing (trimming, richer controls, render preview)
+- True playback preview instead of thumbnail-based preview frames
+- Smarter auto zoom detection
+- Richer timeline editing
+- Trimming controls
+- Preview of rendered zoom/cursor effects before export
 
----
+## Screenshots
 
-### Add Your Images
+Add real screenshots or GIFs here when you are ready:
 
-For a polished GitHub README, add your screenshots here:
+- `docs/images/app.png`
+- `docs/images/editor.png`
+- `docs/images/demo.gif`
 
-- `docs/images/hero.png` (main app screenshot)
-- `docs/images/timeline.png` (editor/timeline screenshot)
-
-Optional: replace one image with a short GIF demo for stronger project presentation.
+The included SVG artwork keeps the README presentable until real product screenshots are available.
