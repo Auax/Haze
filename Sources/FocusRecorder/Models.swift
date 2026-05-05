@@ -34,22 +34,6 @@ enum PreviewRenderMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum FinalPreviewPolicy: String, Codable, CaseIterable, Identifiable {
-    case pausedOnly
-    case reducedQualityPlayback
-    case alwaysHighQuality
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .pausedOnly: return "Paused only"
-        case .reducedQualityPlayback: return "Reduced quality while playing"
-        case .alwaysHighQuality: return "Always high quality"
-        }
-    }
-}
-
 enum CursorSprite: String, Identifiable, Codable {
     case system
     case arrow
@@ -154,7 +138,7 @@ struct RecordingSettings: Codable {
     var cursorSmoothing: Double = 0.78
     /// Half-window (in seconds) used to weight neighboring cursor samples for smoothing.
     var cursorSmoothingWindow: Double = 0.34
-    /// Hotspot-anchored cursor tilt from fast movement. 0 = off, 1 = strongest.
+    /// Hotspot-anchored cursor tilt from fast movement. 0 = off, 2 = strongest.
     var cursorSpring: Double = 0.35
     /// Render-time cursor opacity 0...1.
     var cursorOpacity: Double = 1.0
@@ -553,13 +537,9 @@ struct EditSettings: Codable, Equatable {
     var showClickRipples: Bool = true
     /// Strength of zoom/frame motion blur. 0 disables the effect.
     var motionBlur: Double = 0
-    var previewRenderMode: PreviewRenderMode = .approximate
-    var finalPreviewPolicy: FinalPreviewPolicy = .pausedOnly
-    var previewMotionBlurEnabled: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case background, padding, cornerRadius, shadow, showCursor, showClickRipples, motionBlur
-        case previewRenderMode, finalPreviewPolicy, previewMotionBlurEnabled
     }
 
     init() {}
@@ -574,9 +554,6 @@ struct EditSettings: Codable, Equatable {
         showCursor = try container.decodeIfPresent(Bool.self, forKey: .showCursor) ?? fallback.showCursor
         showClickRipples = try container.decodeIfPresent(Bool.self, forKey: .showClickRipples) ?? fallback.showClickRipples
         motionBlur = try container.decodeIfPresent(Double.self, forKey: .motionBlur) ?? fallback.motionBlur
-        previewRenderMode = try container.decodeIfPresent(PreviewRenderMode.self, forKey: .previewRenderMode) ?? fallback.previewRenderMode
-        finalPreviewPolicy = try container.decodeIfPresent(FinalPreviewPolicy.self, forKey: .finalPreviewPolicy) ?? fallback.finalPreviewPolicy
-        previewMotionBlurEnabled = try container.decodeIfPresent(Bool.self, forKey: .previewMotionBlurEnabled) ?? fallback.previewMotionBlurEnabled
     }
 
     func encode(to encoder: Encoder) throws {
@@ -588,9 +565,6 @@ struct EditSettings: Codable, Equatable {
         try container.encode(showCursor, forKey: .showCursor)
         try container.encode(showClickRipples, forKey: .showClickRipples)
         try container.encode(motionBlur, forKey: .motionBlur)
-        try container.encode(previewRenderMode, forKey: .previewRenderMode)
-        try container.encode(finalPreviewPolicy, forKey: .finalPreviewPolicy)
-        try container.encode(previewMotionBlurEnabled, forKey: .previewMotionBlurEnabled)
     }
 }
 

@@ -502,7 +502,7 @@ func cursorSpringRotation(
     sprite: CursorSprite,
     shape: CursorShape = .default
 ) -> CGFloat {
-    let amount = min(max(strength, 0), 1)
+    let amount = min(max(strength, 0), 2)
     guard amount > 0.001,
           samples.count >= 2,
           cursorSpringResponse(sprite: sprite, shape: shape) > 0

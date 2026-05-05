@@ -60,8 +60,7 @@ final class PreviewCacheStore: ObservableObject {
         session: RecordingSession,
         time: Double,
         renderer: ExportRenderer,
-        quality: RenderQuality,
-        previewMotionBlurEnabled: Bool
+        quality: RenderQuality
     ) async {
         resetIfNeeded(for: session)
         let requestedTime = min(max(0, time), session.approximateDuration)
@@ -72,7 +71,7 @@ final class PreviewCacheStore: ObservableObject {
             self.status = statusText(for: quality)
             do {
                 var previewSession = session
-                if quality == .previewApproximate || !previewMotionBlurEnabled {
+                if quality == .previewApproximate {
                     previewSession.edit.motionBlur = 0
                 }
                 let image = try await renderer.previewImage(session: previewSession, time: requestedTime)

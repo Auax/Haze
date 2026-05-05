@@ -318,9 +318,6 @@ private struct EditorPreview: View {
                     framedVideo(in: proxy.size)
                 }
             }
-            if previewRender.mode != .highFidelity, previewRender.finalPreviewVisible {
-                finalPreviewLayer
-            }
         }
         .onAppear {
             if previewRender.mode != .highFidelity {
@@ -355,55 +352,7 @@ private struct EditorPreview: View {
                 renderer: model.renderer
             )
         }
-        .onChange(of: session.edit.finalPreviewPolicy) { _, _ in
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer,
-                debounce: false
-            )
-        }
-        .onChange(of: session.edit.previewMotionBlurEnabled) { _, _ in
-            updatePreviewFrameState(time: playbackTime)
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer,
-                debounce: false
-            )
-        }
         .clipped()
-    }
-
-    @ViewBuilder
-    private var finalPreviewLayer: some View {
-        ZStack {
-            Color.black.opacity(0.18)
-            if let image = model.previewCache.currentImage {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-            } else {
-                ProgressView()
-            }
-            if let previewStatus = model.previewCache.status {
-                VStack {
-                    Spacer()
-                    Text(previewStatus)
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.black.opacity(0.62), in: Capsule())
-                        .padding(.bottom, 14)
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -588,8 +537,7 @@ private struct EditorPreview: View {
             cameraCenter: resolvedZoomCenter(zoom: zoom, time: time),
             cursorPosition: cursor,
             activeClicks: clicks,
-            motionBlurAmount: session.edit.motionBlur,
-            previewMotionBlurEnabled: session.edit.previewMotionBlurEnabled
+            motionBlurAmount: session.edit.motionBlur
         ))
     }
 }
@@ -694,7 +642,7 @@ private struct TimelinePanel: View {
     var body: some View {
         VStack(spacing: 8) {
             playbackBar
-            timelineHeader
+            timelineActionBar
             GeometryReader { proxy in
                 let timelineWidth = max(800, proxy.size.width) * timelineZoomScale
                 ScrollViewReader { _ in
@@ -712,6 +660,18 @@ private struct TimelinePanel: View {
 
     private var playbackBar: some View {
         HStack(spacing: 12) {
+            Text(timecode(max(0, playbackTime - session.timelineContentStart)))
+                .font(.system(.body, design: .monospaced))
+                .frame(width: 72, alignment: .leading)
+            Text("/")
+                .foregroundStyle(.secondary)
+            Text(timecode(session.timelineVisibleDuration))
+                .foregroundStyle(.secondary)
+                .font(.system(.body, design: .monospaced))
+                .frame(width: 72, alignment: .leading)
+
+            Spacer()
+
             Button {
                 controller.seek(to: session.timelineContentStart)
                 playbackTime = controller.currentTime
@@ -758,34 +718,7 @@ private struct TimelinePanel: View {
             }
             .buttonStyle(.borderless)
 
-            Divider().frame(height: 22)
-
-            Text(timecode(max(0, playbackTime - session.timelineContentStart)))
-                .font(.system(.body, design: .monospaced))
-            Text("/")
-                .foregroundStyle(.secondary)
-            Text(timecode(session.timelineVisibleDuration))
-                .foregroundStyle(.secondary)
-                .font(.system(.body, design: .monospaced))
-
             Spacer()
-
-            Button {
-                model.splitZoomAtPlayhead()
-            } label: {
-                Label("Split", systemImage: "scissors")
-            }
-            .controlSize(.small)
-            .help("Split zoom at playhead, or trim clip after playhead (S)")
-
-            Button {
-                model.clearAllZooms()
-            } label: {
-                Label("Clear", systemImage: "trash")
-            }
-            .controlSize(.small)
-            .disabled(session.zooms.isEmpty)
-            .help("Remove all zooms")
         }
         .onChange(of: controller.currentTime) { _, newTime in
             if abs(newTime - playbackTime) > 0.005 {
@@ -800,14 +733,71 @@ private struct TimelinePanel: View {
         }
     }
 
-    private var timelineHeader: some View {
-        HStack(spacing: 10) {
-            Text("Timeline")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    private var timelineActionBar: some View {
+        HStack(spacing: 8) {
+            timelineIconButton(
+                systemImage: "plus",
+                help: "Add zoom at playhead (Z)",
+                disabled: false,
+                action: { model.addZoomAtPlayhead() }
+            )
+            timelineIconButton(
+                systemImage: "sparkles",
+                help: "Regenerate automatic zooms",
+                disabled: false,
+                action: { model.regenerateAutomaticZooms() }
+            )
+            timelineIconButton(
+                systemImage: "plus.square.on.square",
+                help: "Duplicate selected zoom",
+                disabled: !model.hasSelectedZooms,
+                action: { model.duplicateSelectedZoom() }
+            )
+            timelineIconButton(
+                systemImage: "scissors",
+                help: "Cut selected zooms",
+                disabled: !model.hasSelectedZooms,
+                action: { model.cutSelectedZooms() }
+            )
+            timelineIconButton(
+                systemImage: "trash",
+                help: "Delete selected zooms",
+                disabled: !model.hasSelectedZooms,
+                role: .destructive,
+                action: { model.deleteSelectedZooms() }
+            )
+
+            Divider().frame(height: 20)
+
+            timelineIconButton(
+                systemImage: "square.split.2x1",
+                help: "Split zoom at playhead, or trim clip after playhead (S)",
+                disabled: false,
+                action: { model.splitZoomAtPlayhead() }
+            )
+
             Spacer()
+
             timelineZoomControls
         }
+        .controlSize(.small)
+    }
+
+    private func timelineIconButton(
+        systemImage: String,
+        help: String,
+        disabled: Bool,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Image(systemName: systemImage)
+                .frame(width: 22, height: 20)
+        }
+        .buttonStyle(.borderless)
+        .disabled(disabled)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private var timelineZoomControls: some View {
@@ -828,6 +818,16 @@ private struct TimelinePanel: View {
             Slider(value: $timelineZoomScale, in: 0.5...4, step: 0.05)
                 .frame(width: 120)
                 .help("Timeline horizontal zoom")
+
+            Button {
+                timelineZoomScale = 1
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .frame(width: 18)
+            }
+            .buttonStyle(.borderless)
+            .disabled(abs(timelineZoomScale - 1) < 0.001)
+            .help("Reset timeline zoom")
 
             Button {
                 timelineZoomScale = min(4, (timelineZoomScale + 0.25).rounded(toPlaces: 2))
@@ -1624,10 +1624,9 @@ private struct ZoomBlock: View {
                 Rectangle()
                     .fill(Color.white.opacity(0.001))
                     .frame(width: 18, height: 28)
-                Circle()
+                Capsule()
                     .fill(Color.white.opacity(0.9))
-                    .frame(width: 6, height: 6)
-                    .overlay(Circle().stroke(Color.accentColor.opacity(0.55), lineWidth: 1))
+                    .frame(width: 3, height: 18)
             }
         }
     }
@@ -1694,41 +1693,16 @@ private struct ZoomInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Zooms").font(.title3.weight(.semibold))
+                Text("Zooms").font(.headline)
                 Spacer()
                 Text("\(session.zooms.count)").foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Button {
-                    model.addZoomAtPlayhead()
-                } label: {
-                    Label("Add at playhead", systemImage: "plus")
-                }
-                Button {
-                    model.regenerateAutomaticZooms()
-                } label: {
-                    Label("Regenerate", systemImage: "sparkles")
-                }
-            }
-            .controlSize(.small)
-
-            if !selectedZooms.isEmpty {
-                HStack {
-                    Button {
-                        model.duplicateSelectedZoom()
-                    } label: {
-                        Label("Duplicate", systemImage: "plus.square.on.square")
-                    }
-                }
-                .controlSize(.small)
             }
 
             if session.zooms.isEmpty {
                 ContentUnavailableView(
                     "No zooms yet",
                     systemImage: "plus.magnifyingglass",
-                    description: Text("Press Z at any moment in the timeline to add a zoom, or use Regenerate.")
+                    description: Text("Press Z or use the timeline action row to add a zoom.")
                 )
             } else {
                 Divider()
@@ -1804,11 +1778,13 @@ private struct ZoomCard: View {
             .contentShape(Rectangle())
             .onTapGesture { onSelect() }
 
-            SliderRow(label: "Scale",    value: zoom.scale, range: 1...3, suffix: "x") {
+            SliderRow(label: "Scale", value: zoom.scale, range: 1...3, suffix: "x", defaultValue: RecordingSettings().automaticZoomScale) {
                 var u = zoom; u.scale = $0; onChange(u)
             } onCommit: {
                 var u = zoom; u.scale = $0; onCommit(u)
-            } onBegin: { onBegin() }
+            } onBegin: { onBegin() } onReset: {
+                var u = zoom; u.scale = $0; onCommit(u)
+            }
 
             Toggle("Follow cursor", isOn: Binding(
                 get: { zoom.followCursor },
@@ -1848,7 +1824,7 @@ private struct ZoomCard: View {
                 }
                 .pickerStyle(.segmented)
 
-                SliderRow(label: "Smoothness", value: zoom.followCursorSmoothing, range: 0...2, suffix: "") {
+                SliderRow(label: "Smoothness", value: zoom.followCursorSmoothing, range: 0...2, suffix: "", defaultValue: 0.72) {
                     var u = zoom
                     u.followCursorSmoothing = $0
                     onChange(u)
@@ -1856,8 +1832,12 @@ private struct ZoomCard: View {
                     var u = zoom
                     u.followCursorSmoothing = $0
                     onCommit(u)
-                } onBegin: { onBegin() }
-                SliderRow(label: "Cursor delay", value: zoom.followCursorDelay, range: 0...0.8, suffix: "s") {
+                } onBegin: { onBegin() } onReset: {
+                    var u = zoom
+                    u.followCursorSmoothing = $0
+                    onCommit(u)
+                }
+                SliderRow(label: "Cursor delay", value: zoom.followCursorDelay, range: 0...0.8, suffix: "s", defaultValue: 0.10) {
                     var u = zoom
                     u.followCursorDelay = $0
                     onChange(u)
@@ -1865,7 +1845,11 @@ private struct ZoomCard: View {
                     var u = zoom
                     u.followCursorDelay = $0
                     onCommit(u)
-                } onBegin: { onBegin() }
+                } onBegin: { onBegin() } onReset: {
+                    var u = zoom
+                    u.followCursorDelay = $0
+                    onCommit(u)
+                }
 
                 switch zoom.followCursorStyle {
                 case .cinematic:
@@ -1914,7 +1898,7 @@ private struct ZoomCard: View {
 
             DisclosureGroup("Custom curve", isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 10) {
-                    SliderRow(label: "Ramp", value: zoom.rampFraction, range: 0.04...0.48, suffix: "") {
+                    SliderRow(label: "Ramp", value: zoom.rampFraction, range: 0.04...0.48, suffix: "", defaultValue: ZoomEasing.smooth.rampFraction) {
                         var u = zoom
                         u.easing = .custom
                         u.rampFraction = $0
@@ -1928,7 +1912,15 @@ private struct ZoomCard: View {
                         u.zoomInDuration = max(0.08, u.duration * $0)
                         u.zoomOutDuration = max(0.08, u.duration * $0)
                         onCommit(u)
-                    } onBegin: { onBegin() }
+                    } onBegin: { onBegin() } onReset: {
+                        var u = zoom
+                        u.easing = .smooth
+                        u.rampFraction = $0
+                        u.zoomInDuration = max(0.08, u.duration * $0)
+                        u.zoomOutDuration = max(0.08, u.duration * $0)
+                        u.bezier = ZoomEasing.smooth.curve
+                        onCommit(u)
+                    }
 
                     BezierCurveEditor(
                         curve: zoom.bezier,
@@ -2025,11 +2017,13 @@ private struct MultiZoomCard: View {
                 Spacer()
             }
 
-            SliderRow(label: "Scale", value: averageScale, range: 1...3, suffix: "x") { value in
+            SliderRow(label: "Scale", value: averageScale, range: 1...3, suffix: "x", defaultValue: RecordingSettings().automaticZoomScale) { value in
                 onChange { $0.scale = value }
             } onCommit: { value in
                 onCommit { $0.scale = value }
-            } onBegin: { onBegin() }
+            } onBegin: { onBegin() } onReset: { value in
+                onCommit { $0.scale = value }
+            }
 
             Toggle("Follow cursor during zoom", isOn: Binding(
                 get: { allFollowCursor },
@@ -2048,17 +2042,21 @@ private struct MultiZoomCard: View {
                 }
                 .pickerStyle(.segmented)
 
-                SliderRow(label: "Smoothness", value: averageFollowSmoothing, range: 0...2, suffix: "") { value in
+                SliderRow(label: "Smoothness", value: averageFollowSmoothing, range: 0...2, suffix: "", defaultValue: 0.72) { value in
                     onChange { $0.followCursorSmoothing = value }
                 } onCommit: { value in
                     onCommit { $0.followCursorSmoothing = value }
-                } onBegin: { onBegin() }
+                } onBegin: { onBegin() } onReset: { value in
+                    onCommit { $0.followCursorSmoothing = value }
+                }
 
-                SliderRow(label: "Cursor delay", value: averageFollowDelay, range: 0...0.8, suffix: "s") { value in
+                SliderRow(label: "Cursor delay", value: averageFollowDelay, range: 0...0.8, suffix: "s", defaultValue: 0.10) { value in
                     onChange { $0.followCursorDelay = value }
                 } onCommit: { value in
                     onCommit { $0.followCursorDelay = value }
-                } onBegin: { onBegin() }
+                } onBegin: { onBegin() } onReset: { value in
+                    onCommit { $0.followCursorDelay = value }
+                }
             }
 
             HStack {
@@ -2592,44 +2590,39 @@ private struct PolishInspector: View {
             if currentMode != .none {
                 Divider()
                 Text("Frame").font(.headline)
-                SliderRow(label: "Padding", value: edit.padding, range: 0...0.18, suffix: "") {
+                SliderRow(label: "Padding", value: edit.padding, range: 0...0.18, suffix: "", defaultValue: EditSettings().padding) {
                     var e = edit; e.padding = $0; model.updateEditSettings(e)
                 } onCommit: {
                     var e = edit; e.padding = $0; model.updateEditSettings(e); model.endUndoTransaction()
-                } onBegin: { model.beginUndoTransaction() }
-                SliderRow(label: "Corners", value: edit.cornerRadius, range: 0...0.08, suffix: "") {
+                } onBegin: { model.beginUndoTransaction() } onReset: {
+                    var e = edit; e.padding = $0; model.updateEditSettings(e); model.endUndoTransaction()
+                }
+                SliderRow(label: "Corners", value: edit.cornerRadius, range: 0...0.08, suffix: "", defaultValue: EditSettings().cornerRadius) {
                     var e = edit; e.cornerRadius = $0; model.updateEditSettings(e)
                 } onCommit: {
                     var e = edit; e.cornerRadius = $0; model.updateEditSettings(e); model.endUndoTransaction()
-                } onBegin: { model.beginUndoTransaction() }
-                SliderRow(label: "Shadow", value: edit.shadow, range: 0...1, suffix: "") {
+                } onBegin: { model.beginUndoTransaction() } onReset: {
+                    var e = edit; e.cornerRadius = $0; model.updateEditSettings(e); model.endUndoTransaction()
+                }
+                SliderRow(label: "Shadow", value: edit.shadow, range: 0...1, suffix: "", defaultValue: EditSettings().shadow) {
                     var e = edit; e.shadow = $0; model.updateEditSettings(e)
                 } onCommit: {
                     var e = edit; e.shadow = $0; model.updateEditSettings(e); model.endUndoTransaction()
-                } onBegin: { model.beginUndoTransaction() }
+                } onBegin: { model.beginUndoTransaction() } onReset: {
+                    var e = edit; e.shadow = $0; model.updateEditSettings(e); model.endUndoTransaction()
+                }
             }
 
             Divider()
 
             Text("Motion").font(.headline)
-            SliderRow(label: "Blur", value: edit.motionBlur, range: 0...1, suffix: "") {
+            SliderRow(label: "Blur", value: edit.motionBlur, range: 0...1, suffix: "", defaultValue: EditSettings().motionBlur) {
                 var e = edit; e.motionBlur = $0; model.updateEditSettings(e)
             } onCommit: {
                 var e = edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
-
-            Toggle("Preview motion blur", isOn: previewMotionBlurBinding)
-                .help("Apply the lightweight GPU motion-blur preview during Live Preview and paused final preview frames.")
-
-            Divider()
-
-            Text("Preview").font(.headline)
-            Picker("Final preview", selection: finalPreviewPolicyBinding) {
-                ForEach(FinalPreviewPolicy.allCases) { policy in
-                    Text(policy.label).tag(policy)
-                }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var e = edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
             }
-            .help("Controls paused final-quality preview frames. Live playback uses the Metal preview renderer.")
         }
     }
 
@@ -2661,28 +2654,6 @@ private struct PolishInspector: View {
                         )
                     }
                 }
-                model.updateEditSettings(e, recordUndo: true)
-            }
-        )
-    }
-
-    private var previewMotionBlurBinding: Binding<Bool> {
-        Binding(
-            get: { edit.previewMotionBlurEnabled },
-            set: { enabled in
-                var e = edit
-                e.previewMotionBlurEnabled = enabled
-                model.updateEditSettings(e, recordUndo: true)
-            }
-        )
-    }
-
-    private var finalPreviewPolicyBinding: Binding<FinalPreviewPolicy> {
-        Binding(
-            get: { edit.finalPreviewPolicy },
-            set: { policy in
-                var e = edit
-                e.finalPreviewPolicy = policy
                 model.updateEditSettings(e, recordUndo: true)
             }
         )
@@ -2824,7 +2795,7 @@ private struct CursorInspector: View {
                 customCursorPicker
             }
 
-            SliderRow(label: "Size", value: session.settings.cursorScale, range: 0.5...3.0, suffix: "x") {
+            SliderRow(label: "Size", value: session.settings.cursorScale, range: 0.5...5.0, suffix: "x", defaultValue: RecordingSettings().cursorScale) {
                 var settings = session.settings
                 settings.cursorScale = $0
                 model.updateSessionSettings(settings)
@@ -2833,9 +2804,14 @@ private struct CursorInspector: View {
                 settings.cursorScale = $0
                 model.updateSessionSettings(settings)
                 model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var settings = session.settings
+                settings.cursorScale = $0
+                model.updateSessionSettings(settings)
+                model.endUndoTransaction()
+            }
 
-            SliderRow(label: "Opacity", value: session.settings.cursorOpacity, range: 0.2...1.0, suffix: "") {
+            SliderRow(label: "Opacity", value: session.settings.cursorOpacity, range: 0.2...1.0, suffix: "", defaultValue: RecordingSettings().cursorOpacity) {
                 var settings = session.settings
                 settings.cursorOpacity = $0
                 model.updateSessionSettings(settings)
@@ -2844,13 +2820,18 @@ private struct CursorInspector: View {
                 settings.cursorOpacity = $0
                 model.updateSessionSettings(settings)
                 model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var settings = session.settings
+                settings.cursorOpacity = $0
+                model.updateSessionSettings(settings)
+                model.endUndoTransaction()
+            }
 
             Divider()
 
             Text("Motion").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
 
-            SliderRow(label: "Smoothing", value: session.settings.cursorSmoothing, range: 0...2.0, suffix: "") {
+            SliderRow(label: "Smoothing", value: session.settings.cursorSmoothing, range: 0...2.0, suffix: "", defaultValue: RecordingSettings().cursorSmoothing) {
                 var settings = session.settings
                 settings.cursorSmoothing = $0
                 model.updateSessionSettings(settings)
@@ -2859,9 +2840,14 @@ private struct CursorInspector: View {
                 settings.cursorSmoothing = $0
                 model.updateSessionSettings(settings)
                 model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var settings = session.settings
+                settings.cursorSmoothing = $0
+                model.updateSessionSettings(settings)
+                model.endUndoTransaction()
+            }
 
-            SliderRow(label: "Window", value: session.settings.cursorSmoothingWindow, range: 0.05...0.9, suffix: "s") {
+            SliderRow(label: "Window", value: session.settings.cursorSmoothingWindow, range: 0.05...0.9, suffix: "s", defaultValue: RecordingSettings().cursorSmoothingWindow) {
                 var settings = session.settings
                 settings.cursorSmoothingWindow = $0
                 model.updateSessionSettings(settings)
@@ -2870,9 +2856,14 @@ private struct CursorInspector: View {
                 settings.cursorSmoothingWindow = $0
                 model.updateSessionSettings(settings)
                 model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var settings = session.settings
+                settings.cursorSmoothingWindow = $0
+                model.updateSessionSettings(settings)
+                model.endUndoTransaction()
+            }
 
-            SliderRow(label: "Spring", value: session.settings.cursorSpring, range: 0...1.0, suffix: "") {
+            SliderRow(label: "Spring", value: session.settings.cursorSpring, range: 0...2.0, suffix: "", defaultValue: RecordingSettings().cursorSpring) {
                 var settings = session.settings
                 settings.cursorSpring = $0
                 model.updateSessionSettings(settings)
@@ -2881,7 +2872,12 @@ private struct CursorInspector: View {
                 settings.cursorSpring = $0
                 model.updateSessionSettings(settings)
                 model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var settings = session.settings
+                settings.cursorSpring = $0
+                model.updateSessionSettings(settings)
+                model.endUndoTransaction()
+            }
 
             Divider()
 
@@ -2897,7 +2893,7 @@ private struct CursorInspector: View {
             ))
 
             if session.settings.cursorClickPulse {
-                SliderRow(label: "Pulse", value: session.settings.cursorClickPulseStrength, range: 0...1.0, suffix: "") {
+                SliderRow(label: "Pulse", value: session.settings.cursorClickPulseStrength, range: 0...1.0, suffix: "", defaultValue: RecordingSettings().cursorClickPulseStrength) {
                     var settings = session.settings
                     settings.cursorClickPulseStrength = $0
                     model.updateSessionSettings(settings)
@@ -2906,15 +2902,12 @@ private struct CursorInspector: View {
                     settings.cursorClickPulseStrength = $0
                     model.updateSessionSettings(settings)
                     model.endUndoTransaction()
-                } onBegin: { model.beginUndoTransaction() }
-            }
-
-            Divider()
-
-            HStack(spacing: 16) {
-                Stat(title: "Cursor samples", value: "\(session.cursorSamples.count)")
-                Stat(title: "Clicks", value: "\(session.clicks.count)")
-                Stat(title: "Keys", value: "\(session.keystrokes.count)")
+                } onBegin: { model.beginUndoTransaction() } onReset: {
+                    var settings = session.settings
+                    settings.cursorClickPulseStrength = $0
+                    model.updateSessionSettings(settings)
+                    model.endUndoTransaction()
+                }
             }
         }
     }
@@ -2981,6 +2974,17 @@ private struct CursorInspector: View {
                     ),
                     in: 0...1
                 )
+                Button {
+                    var s = session.settings
+                    s.customCursorHotspotX = RecordingSettings().customCursorHotspotX
+                    model.updateSessionSettings(s, recordUndo: true)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .disabled(abs(session.settings.customCursorHotspotX - RecordingSettings().customCursorHotspotX) < 0.000_1)
+                .help("Reset hotspot X")
                 Text("Y")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -2995,6 +2999,17 @@ private struct CursorInspector: View {
                     ),
                     in: 0...1
                 )
+                Button {
+                    var s = session.settings
+                    s.customCursorHotspotY = RecordingSettings().customCursorHotspotY
+                    model.updateSessionSettings(s, recordUndo: true)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .disabled(abs(session.settings.customCursorHotspotY - RecordingSettings().customCursorHotspotY) < 0.000_1)
+                .help("Reset hotspot Y")
             }
         }
         .padding(8)
@@ -3069,7 +3084,7 @@ private struct ExportInspector: View {
                 }
             }
 
-            SliderRow(label: "Bitrate", value: session.settings.bitrateMbps, range: 4...80, suffix: " Mbps") {
+            SliderRow(label: "Bitrate", value: session.settings.bitrateMbps, range: 4...80, suffix: " Mbps", defaultValue: RecordingSettings().bitrateMbps) {
                 var s = session.settings
                 s.bitrateMbps = $0
                 model.updateSessionSettings(s)
@@ -3078,7 +3093,12 @@ private struct ExportInspector: View {
                 s.bitrateMbps = $0
                 model.updateSessionSettings(s)
                 model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() }
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var s = session.settings
+                s.bitrateMbps = $0
+                model.updateSessionSettings(s)
+                model.endUndoTransaction()
+            }
 
             HStack {
                 Text("Frame rate").foregroundStyle(.secondary).font(.caption)
@@ -3285,7 +3305,31 @@ private struct SliderRow: View {
     let onChange: (Double) -> Void
     var onCommit: ((Double) -> Void)? = nil
     var onBegin: (() -> Void)? = nil
+    var defaultValue: Double? = nil
+    var onReset: ((Double) -> Void)? = nil
     @State private var draftValue: Double?
+
+    init(
+        label: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        suffix: String,
+        defaultValue: Double? = nil,
+        onChange: @escaping (Double) -> Void,
+        onCommit: ((Double) -> Void)? = nil,
+        onBegin: (() -> Void)? = nil,
+        onReset: ((Double) -> Void)? = nil
+    ) {
+        self.label = label
+        self.value = value
+        self.range = range
+        self.suffix = suffix
+        self.defaultValue = defaultValue
+        self.onChange = onChange
+        self.onCommit = onCommit
+        self.onBegin = onBegin
+        self.onReset = onReset
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -3294,6 +3338,20 @@ private struct SliderRow: View {
                 Spacer()
                 Text("\(draftValue ?? value, specifier: range.upperBound > 10 ? "%.0f" : "%.2f")\(suffix)")
                     .monospacedDigit()
+                if let defaultValue, let onReset {
+                    Button {
+                        draftValue = nil
+                        onBegin?()
+                        onReset(defaultValue)
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(abs(value - defaultValue) < 0.000_1)
+                    .help("Reset \(label)")
+                    .accessibilityLabel("Reset \(label)")
+                }
             }
             .font(.caption)
             Slider(

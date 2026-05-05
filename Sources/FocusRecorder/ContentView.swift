@@ -510,14 +510,14 @@ struct ContentView: View {
             }
             HStack {
                 Text("Cursor size").frame(width: 110, alignment: .leading)
-                Slider(value: $model.settings.cursorScale, in: 0.5...3.0, step: 0.05)
+                Slider(value: $model.settings.cursorScale, in: 0.5...5.0, step: 0.05)
                 Text("\(model.settings.cursorScale, specifier: "%.2f")x")
                     .monospacedDigit()
                     .frame(width: 40, alignment: .trailing)
             }
             HStack {
                 Text("Cursor spring").frame(width: 110, alignment: .leading)
-                Slider(value: $model.settings.cursorSpring, in: 0...1.0, step: 0.05)
+                Slider(value: $model.settings.cursorSpring, in: 0...2.0, step: 0.05)
                 Text("\(model.settings.cursorSpring, specifier: "%.2f")")
                     .monospacedDigit()
                     .frame(width: 40, alignment: .trailing)

@@ -87,6 +87,7 @@ final class MetalPreviewView: NSView {
         if fallbackPlayerView.player !== player {
             fallbackPlayerView.player = player
         }
+        fallbackPlayerView.isHidden = enabled && renderer != nil
         renderer?.update(session: session)
         renderer?.setPlayer(player)
         renderer?.setEnabled(enabled)
@@ -321,16 +322,13 @@ private final class MetalPreviewRenderer: NSObject, MTKViewDelegate {
         let renderTime = videoFrame.time ?? currentPlayerTime()
         let layout = MetalPreviewLayout(session: session, drawableSize: view.drawableSize)
         let frameState = makeFrameState(session: session, layout: layout, time: renderTime, hostTime: hostTime)
-        let videoTexture = videoFrame.texture ?? lastVideoTexture
-
-        if let videoTexture {
-            drawScene(
-                encoder: encoder,
-                texture: videoTexture,
-                layout: layout,
-                frameState: frameState
-            )
-        }
+        let videoTexture = videoFrame.texture ?? lastVideoTexture ?? fallbackTexture
+        drawScene(
+            encoder: encoder,
+            texture: videoTexture,
+            layout: layout,
+            frameState: frameState
+        )
 
         if session.edit.showClickRipples {
             drawRipples(
@@ -615,8 +613,7 @@ private final class MetalPreviewRenderer: NSObject, MTKViewDelegate {
             lastBlurTime = time
         }
 
-        guard session.edit.previewMotionBlurEnabled,
-              session.edit.motionBlur > 0.001,
+        guard session.edit.motionBlur > 0.001,
               let lastCenter = lastBlurCameraCenter,
               let lastTime = lastBlurTime,
               abs(time - lastTime) < 0.20
@@ -656,9 +653,15 @@ private final class MetalPreviewRenderer: NSObject, MTKViewDelegate {
             backgroundBottom: layout.backgroundBottom,
             options: SIMD4<Float>(
                 Float(layout.backgroundKind),
-                Float(min(max(layout.motionBlurEnabled ? hypot(frameState.blurVectorSource.x, frameState.blurVectorSource.y) : 0, 0), 8) / 8),
+                Float(min(max(hypot(frameState.blurVectorSource.x, frameState.blurVectorSource.y), 0), 8) / 8),
                 Float(frameState.blurVectorSource.x / max(1, layout.sourceSize.width)),
                 Float(frameState.blurVectorSource.y / max(1, layout.sourceSize.height))
+            ),
+            shadow: SIMD4<Float>(
+                Float(layout.shadow),
+                Float(max(2, layout.shadow * 30)),
+                Float(max(0, layout.shadow * 16)),
+                Float(layout.shadow * 0.6)
             )
         )
 
@@ -735,8 +738,7 @@ private final class MetalPreviewRenderer: NSObject, MTKViewDelegate {
         encoder.setFragmentTexture(cursorAtlas.texture, index: 0)
         encoder.setFragmentSamplerState(cursorSampler, index: 0)
 
-        if session.edit.previewMotionBlurEnabled,
-           session.edit.motionBlur > 0.001,
+        if session.edit.motionBlur > 0.001,
            let previous = smoothedCursor(
                 at: max(0, time - 1.0 / Double(max(30, session.settings.frameRate))),
                 samples: session.cursorSamples,
@@ -864,7 +866,7 @@ private struct MetalPreviewLayout {
     let backgroundKind: Int
     let backgroundTop: SIMD4<Float>
     let backgroundBottom: SIMD4<Float>
-    let motionBlurEnabled: Bool
+    let shadow: CGFloat
 
     init(session: RecordingSession, drawableSize: CGSize) {
         self.drawableSize = drawableSize
@@ -884,7 +886,7 @@ private struct MetalPreviewLayout {
             height: frameH
         )
         self.cornerRadius = videoOnly ? 0 : max(0, CGFloat(session.edit.cornerRadius)) * min(frameW, frameH) * 1.4
-        self.motionBlurEnabled = session.edit.previewMotionBlurEnabled
+        self.shadow = videoOnly ? 0 : max(0, min(1, CGFloat(session.edit.shadow)))
 
         switch session.edit.background {
         case .none:
@@ -931,6 +933,7 @@ private struct SceneUniforms {
     var backgroundTop: SIMD4<Float>
     var backgroundBottom: SIMD4<Float>
     var options: SIMD4<Float>
+    var shadow: SIMD4<Float>
 }
 
 private struct SpriteUniforms {
@@ -1105,6 +1108,7 @@ private extension MetalPreviewRenderer {
         float4 backgroundTop;
         float4 backgroundBottom;
         float4 options;
+        float4 shadow;
     };
 
     struct SpriteUniforms {
@@ -1124,13 +1128,17 @@ private extension MetalPreviewRenderer {
         return out;
     }
 
+    static float roundedRectDistance(float2 local, float2 size, float radius) {
+        float2 halfSize = size * 0.5;
+        float2 q = abs(local - halfSize) - (halfSize - float2(radius));
+        return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    }
+
     static float roundedRectAlpha(float2 local, float2 size, float radius) {
         if (radius <= 0.001) {
             return all(local >= float2(0.0)) && all(local <= size) ? 1.0 : 0.0;
         }
-        float2 halfSize = size * 0.5;
-        float2 q = abs(local - halfSize) - (halfSize - float2(radius));
-        float distance = length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+        float distance = roundedRectDistance(local, size, radius);
         return 1.0 - smoothstep(-1.0, 1.0, distance);
     }
 
@@ -1151,6 +1159,14 @@ private extension MetalPreviewRenderer {
         float2 pixel = in.uv * u.drawableSize;
         float2 untransformed = (pixel - translate) / scale;
         float2 local = untransformed - u.frameOrigin;
+        float4 baseBackground = background;
+        float shadowStrength = clamp(u.shadow.x, 0.0, 1.0);
+        if (shadowStrength > 0.001) {
+            float2 shadowLocal = untransformed - u.frameOrigin - float2(0.0, u.shadow.z);
+            float shadowDistance = roundedRectDistance(shadowLocal, u.frameSize, u.transform.w);
+            float shadowAlpha = (1.0 - smoothstep(-u.shadow.y * 0.25, u.shadow.y, shadowDistance)) * clamp(u.shadow.w, 0.0, 1.0);
+            background = float4(mix(baseBackground.rgb, float3(0.0), shadowAlpha), baseBackground.a);
+        }
         float mask = roundedRectAlpha(local, u.frameSize, u.transform.w);
         if (mask <= 0.001) {
             return half4(background);
