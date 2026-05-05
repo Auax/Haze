@@ -55,6 +55,7 @@ final class SessionFinalFrameRenderer: FinalFrameRendering {
 @MainActor
 final class PreviewRenderController: ObservableObject {
     @Published private(set) var mode: PreviewRenderMode = .approximate
+    @Published private(set) var finalPreviewPolicy: FinalPreviewPolicy = .pausedOnly
     @Published private(set) var previewMotionBlurEnabled = true
     @Published private(set) var isScrubbing = false
     @Published private(set) var finalPreviewVisible = false
@@ -67,10 +68,10 @@ final class PreviewRenderController: ObservableObject {
     }
 
     func sync(from session: RecordingSession) {
+        finalPreviewPolicy = session.edit.finalPreviewPolicy
         previewMotionBlurEnabled = session.edit.previewMotionBlurEnabled
     }
 
-    /// Switch between approximate (SwiftUI overlay) and highFidelity (Metal) live preview.
     func setMode(_ newMode: PreviewRenderMode, cache: PreviewCacheStore) {
         mode = newMode
         pendingRender?.cancel()
@@ -82,7 +83,6 @@ final class PreviewRenderController: ObservableObject {
         frameState = state
     }
 
-    /// Resets to approximate mode; called when a new session is loaded.
     func resetToApproximate(cache: PreviewCacheStore) {
         mode = .approximate
         isScrubbing = false
@@ -91,39 +91,101 @@ final class PreviewRenderController: ObservableObject {
         cache.clearCurrentFrame()
     }
 
-    /// Hide the on-demand final preview overlay and clear any rendered frame.
-    func dismissFinalPreview(cache: PreviewCacheStore) {
-        pendingRender?.cancel()
-        finalPreviewVisible = false
-        cache.clearCurrentFrame()
-    }
-
-    func setScrubbing(_ scrubbing: Bool, cache: PreviewCacheStore) {
-        isScrubbing = scrubbing
-        if scrubbing {
-            dismissFinalPreview(cache: cache)
-        }
-    }
-
-    /// Renders one final-quality preview frame on demand. Triggered by the editor's
-    /// "Preview Frame" button — the final preview is never shown automatically.
-    func requestSingleFrame(
+    func setScrubbing(
+        _ scrubbing: Bool,
         session: RecordingSession,
         time: Double,
+        isPlaying: Bool,
         cache: PreviewCacheStore,
         renderer: ExportRenderer
     ) {
+        isScrubbing = scrubbing
+        if scrubbing {
+            pendingRender?.cancel()
+            finalPreviewVisible = false
+            cache.clearCurrentFrame()
+            return
+        }
+        requestFrameIfAllowed(
+            session: session,
+            time: time,
+            isPlaying: isPlaying,
+            cache: cache,
+            renderer: renderer,
+            debounce: true
+        )
+    }
+
+    func requestFrameIfAllowed(
+        session: RecordingSession,
+        time: Double,
+        isPlaying: Bool,
+        cache: PreviewCacheStore,
+        renderer: ExportRenderer,
+        debounce: Bool = true
+    ) {
         sync(from: session)
-        pendingRender?.cancel()
+        guard mode != .highFidelity else {
+            pendingRender?.cancel()
+            finalPreviewVisible = false
+            cache.clearCurrentFrame()
+            return
+        }
+        guard let decision = renderDecision(isPlaying: isPlaying) else {
+            pendingRender?.cancel()
+            finalPreviewVisible = false
+            cache.clearCurrentFrame()
+            return
+        }
+
         finalPreviewVisible = true
+        pendingRender?.cancel()
+        let delay = debounce ? decision.debounceNanoseconds : 0
         pendingRender = Task { [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard !Task.isCancelled else { return }
             await cache.displaySingleFrame(
                 session: session,
                 time: time,
                 renderer: renderer,
-                quality: .previewHighFidelity,
+                quality: decision.quality,
                 previewMotionBlurEnabled: self?.previewMotionBlurEnabled ?? true
             )
         }
+    }
+
+    private func renderDecision(isPlaying: Bool) -> RenderDecision? {
+        if isScrubbing {
+            return nil
+        }
+
+        if isPlaying {
+            return nil
+        }
+
+        switch finalPreviewPolicy {
+        case .pausedOnly:
+            return RenderDecision(
+                quality: .previewHighFidelity,
+                debounceNanoseconds: 160_000_000
+            )
+        case .reducedQualityPlayback:
+            return RenderDecision(
+                quality: .previewHighFidelity,
+                debounceNanoseconds: 160_000_000
+            )
+        case .alwaysHighQuality:
+            return RenderDecision(
+                quality: .previewHighFidelity,
+                debounceNanoseconds: 160_000_000
+            )
+        }
+    }
+
+    private struct RenderDecision {
+        var quality: RenderQuality
+        var debounceNanoseconds: UInt64
     }
 }
