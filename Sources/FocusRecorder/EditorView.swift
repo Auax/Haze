@@ -60,7 +60,7 @@ struct EditorView: View {
     @ViewBuilder
     private func content(session: RecordingSession) -> some View {
         VStack(spacing: 0) {
-            EditorTopBar(session: session, previewRender: previewRender)
+            EditorTopBar(session: session, previewRender: previewRender, playbackTime: $model.playbackTime)
                 .environmentObject(model)
             Divider()
             HSplitView {
@@ -211,6 +211,7 @@ private struct EditorTopBar: View {
     @EnvironmentObject var model: AppViewModel
     let session: RecordingSession
     @ObservedObject var previewRender: PreviewRenderController
+    @Binding var playbackTime: Double
 
     var body: some View {
         HStack(spacing: 14) {
@@ -237,14 +238,19 @@ private struct EditorTopBar: View {
                 Label("Live Preview", systemImage: "eye")
             }
             .toggleStyle(.button)
-            .help("Enable high-fidelity live preview. The fast approximate preview remains the default.")
+            .help("Enable Metal-based real-time live preview.")
 
             Button {
-                model.previewCache.renderAll(session: session, renderer: model.renderer)
+                previewRender.requestSingleFrame(
+                    session: session,
+                    time: playbackTime,
+                    cache: model.previewCache,
+                    renderer: model.renderer
+                )
             } label: {
-                Label("Render Cache", systemImage: "film.stack")
+                Label("Preview Frame", systemImage: "eye")
             }
-            .help("Pre-render final preview frames for smoother playback")
+            .help("Render a final-quality preview of the current frame")
 
             Divider().frame(height: 22)
 
@@ -323,58 +329,23 @@ private struct EditorPreview: View {
             }
         }
         .onAppear {
-            if previewRender.mode != .highFidelity {
-                updatePreviewFrameState(time: playbackTime)
-            }
+            updatePreviewFrameState(time: playbackTime)
             model.previewCache.clearCurrentFrame()
         }
         .onDisappear {
-            model.previewCache.clearCurrentFrame()
+            previewRender.dismissFinalPreview(cache: model.previewCache)
         }
         .onChange(of: playbackTime) { _, newTime in
             if previewRender.mode != .highFidelity {
                 updatePreviewFrameState(time: newTime)
             }
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: newTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer
-            )
+            previewRender.dismissFinalPreview(cache: model.previewCache)
         }
-        .onChange(of: controller.isPlaying) { _, isPlaying in
+        .onChange(of: controller.isPlaying) { _, _ in
             if previewRender.mode != .highFidelity {
                 updatePreviewFrameState(time: playbackTime)
             }
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer
-            )
-        }
-        .onChange(of: session.edit.finalPreviewPolicy) { _, _ in
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer,
-                debounce: false
-            )
-        }
-        .onChange(of: session.edit.previewMotionBlurEnabled) { _, _ in
-            updatePreviewFrameState(time: playbackTime)
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer,
-                debounce: false
-            )
+            previewRender.dismissFinalPreview(cache: model.previewCache)
         }
         .clipped()
     }
@@ -433,6 +404,11 @@ private struct EditorPreview: View {
         let availableH = max(40, size.height - pad * 2)
         let frameH = min(availableH, availableW / aspect)
         let frameW = frameH * aspect
+        // Reference frame at zero padding so cursor and ripples keep a constant
+        // on-screen size regardless of the padding slider.
+        let referenceFrameH = min(size.height, size.width / aspect)
+        let referenceFrameW = referenceFrameH * aspect
+        let cursorScreenRatio = referenceFrameW / max(1, CGFloat(session.width))
         let radius = videoOnly ? 0 : max(0, CGFloat(session.edit.cornerRadius)) * min(frameW, frameH) * 1.4
         let zoom = activeZoom(at: playbackTime, zooms: session.zooms)
         let live = liveZoom(zoom: zoom, time: playbackTime)
@@ -501,9 +477,8 @@ private struct EditorPreview: View {
                         .frame(width: frameW, height: frameH)
                 }
                 if session.edit.showClickRipples {
-                    let ratio = frameW / max(1, CGFloat(session.width))
                     ForEach(activeRipples(at: playbackTime, clicks: session.clicks)) { ripple in
-                        RippleMarker(elapsed: ripple.elapsed, frameToSessionRatio: ratio)
+                        RippleMarker(elapsed: ripple.elapsed, frameToSessionRatio: cursorScreenRatio)
                             .position(
                                 x: ripple.x / Double(session.width) * frameW,
                                 y: ripple.y / Double(session.height) * frameH
@@ -518,7 +493,7 @@ private struct EditorPreview: View {
                         settings: session.settings,
                         systemShape: cursorShape,
                         springRotation: cursorSpring,
-                        frameToSessionRatio: frameW / max(1, CGFloat(session.width))
+                        frameToSessionRatio: cursorScreenRatio
                     )
                         .opacity(cursorOpacity)
                         .position(
@@ -866,14 +841,7 @@ private struct TimelinePanel: View {
                         height: 68,
                         filmstripSelected: $filmstripSelected,
                         onScrubBegan: {
-                            previewRender.setScrubbing(
-                                true,
-                                session: session,
-                                time: playbackTime,
-                                isPlaying: controller.isPlaying,
-                                cache: model.previewCache,
-                                renderer: model.renderer
-                            )
+                            previewRender.setScrubbing(true, cache: model.previewCache)
                         },
                         scrubTo: { t in
                             playbackTime = t
@@ -881,14 +849,7 @@ private struct TimelinePanel: View {
                             controller.seek(to: t, precise: false)
                         },
                         onScrubEnded: {
-                            previewRender.setScrubbing(
-                                false,
-                                session: session,
-                                time: playbackTime,
-                                isPlaying: controller.isPlaying,
-                                cache: model.previewCache,
-                                renderer: model.renderer
-                            )
+                            previewRender.setScrubbing(false, cache: model.previewCache)
                         },
                         onSelectFilmstrip: {
                             filmstripSelected = true
@@ -927,28 +888,14 @@ private struct TimelinePanel: View {
     private func scrubGesture(width: Double, duration: Double) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                previewRender.setScrubbing(
-                    true,
-                    session: session,
-                    time: playbackTime,
-                    isPlaying: controller.isPlaying,
-                    cache: model.previewCache,
-                    renderer: model.renderer
-                )
+                previewRender.setScrubbing(true, cache: model.previewCache)
                 let t = min(max(0, value.location.x / width * duration), duration)
                 playbackTime = t
                 controller.pause()
                 controller.seek(to: t, precise: false)
             }
             .onEnded { _ in
-                previewRender.setScrubbing(
-                    false,
-                    session: session,
-                    time: playbackTime,
-                    isPlaying: controller.isPlaying,
-                    cache: model.previewCache,
-                    renderer: model.renderer
-                )
+                previewRender.setScrubbing(false, cache: model.previewCache)
             }
     }
 
@@ -2619,17 +2566,7 @@ private struct PolishInspector: View {
             } onBegin: { model.beginUndoTransaction() }
 
             Toggle("Preview motion blur", isOn: previewMotionBlurBinding)
-                .help("Apply the lightweight GPU motion-blur preview during Live Preview and paused final preview frames.")
-
-            Divider()
-
-            Text("Preview").font(.headline)
-            Picker("Final preview", selection: finalPreviewPolicyBinding) {
-                ForEach(FinalPreviewPolicy.allCases) { policy in
-                    Text(policy.label).tag(policy)
-                }
-            }
-            .help("Controls paused final-quality preview frames. Live playback uses the Metal preview renderer.")
+                .help("Apply motion blur when the on-demand final preview frame is rendered.")
         }
     }
 
@@ -2672,17 +2609,6 @@ private struct PolishInspector: View {
             set: { enabled in
                 var e = edit
                 e.previewMotionBlurEnabled = enabled
-                model.updateEditSettings(e, recordUndo: true)
-            }
-        )
-    }
-
-    private var finalPreviewPolicyBinding: Binding<FinalPreviewPolicy> {
-        Binding(
-            get: { edit.finalPreviewPolicy },
-            set: { policy in
-                var e = edit
-                e.finalPreviewPolicy = policy
                 model.updateEditSettings(e, recordUndo: true)
             }
         )
