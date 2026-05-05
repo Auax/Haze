@@ -913,8 +913,15 @@ final class CaptureEngine: NSObject, ObservableObject {
                 last.easing = .smooth
                 last.rampFraction = min(last.rampFraction, zoom.rampFraction, 0.28)
                 last.followCursor = last.followCursor || zoom.followCursor
+                if zoom.followCursorStyle != last.followCursorStyle, zoomWeight > lastWeight {
+                    last.followCursorStyle = zoom.followCursorStyle
+                }
                 last.followCursorSmoothing = max(last.followCursorSmoothing, zoom.followCursorSmoothing)
                 last.followCursorDelay = max(last.followCursorDelay, zoom.followCursorDelay)
+                last.followCursorDeadZoneWidth = (last.followCursorDeadZoneWidth * lastWeight + zoom.followCursorDeadZoneWidth * zoomWeight) / totalWeight
+                last.followCursorDeadZoneHeight = (last.followCursorDeadZoneHeight * lastWeight + zoom.followCursorDeadZoneHeight * zoomWeight) / totalWeight
+                last.followCursorAnchorX = (last.followCursorAnchorX * lastWeight + zoom.followCursorAnchorX * zoomWeight) / totalWeight
+                last.followCursorAnchorY = (last.followCursorAnchorY * lastWeight + zoom.followCursorAnchorY * zoomWeight) / totalWeight
                 output[output.count - 1] = last
             } else {
                 output.append(zoom)

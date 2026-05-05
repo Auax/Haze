@@ -62,20 +62,33 @@ final class PreviewRenderController: ObservableObject {
 
     private(set) var frameState: PreviewFrameState?
     private var pendingRender: Task<Void, Never>?
-    private var lastLiveRenderRequest: Date?
 
     deinit {
         pendingRender?.cancel()
     }
 
     func sync(from session: RecordingSession) {
-        mode = session.edit.previewRenderMode
         finalPreviewPolicy = session.edit.finalPreviewPolicy
         previewMotionBlurEnabled = session.edit.previewMotionBlurEnabled
     }
 
+    func setMode(_ newMode: PreviewRenderMode, cache: PreviewCacheStore) {
+        mode = newMode
+        pendingRender?.cancel()
+        finalPreviewVisible = false
+        cache.clearCurrentFrame()
+    }
+
     func update(state: PreviewFrameState) {
         frameState = state
+    }
+
+    func resetToApproximate(cache: PreviewCacheStore) {
+        mode = .approximate
+        isScrubbing = false
+        pendingRender?.cancel()
+        finalPreviewVisible = false
+        cache.clearCurrentFrame()
     }
 
     func setScrubbing(
@@ -112,22 +125,17 @@ final class PreviewRenderController: ObservableObject {
         debounce: Bool = true
     ) {
         sync(from: session)
+        guard mode != .highFidelity else {
+            pendingRender?.cancel()
+            finalPreviewVisible = false
+            cache.clearCurrentFrame()
+            return
+        }
         guard let decision = renderDecision(isPlaying: isPlaying) else {
             pendingRender?.cancel()
             finalPreviewVisible = false
-            if mode == .approximate {
-                cache.clearCurrentFrame()
-            }
+            cache.clearCurrentFrame()
             return
-        }
-
-        if isPlaying {
-            let now = Date()
-            if let lastLiveRenderRequest,
-               now.timeIntervalSince(lastLiveRenderRequest) < decision.minimumLiveInterval {
-                return
-            }
-            lastLiveRenderRequest = now
         }
 
         finalPreviewVisible = true
@@ -153,33 +161,25 @@ final class PreviewRenderController: ObservableObject {
             return nil
         }
 
-        if mode == .highFidelity {
-            return RenderDecision(
-                quality: .previewHighFidelity,
-                debounceNanoseconds: isPlaying ? 50_000_000 : 150_000_000,
-                minimumLiveInterval: 0.20
-            )
+        if isPlaying {
+            return nil
         }
 
         switch finalPreviewPolicy {
         case .pausedOnly:
-            guard !isPlaying else { return nil }
             return RenderDecision(
                 quality: .previewHighFidelity,
-                debounceNanoseconds: 160_000_000,
-                minimumLiveInterval: .infinity
+                debounceNanoseconds: 160_000_000
             )
         case .reducedQualityPlayback:
             return RenderDecision(
-                quality: isPlaying ? .previewApproximate : .previewHighFidelity,
-                debounceNanoseconds: isPlaying ? 120_000_000 : 160_000_000,
-                minimumLiveInterval: 0.35
+                quality: .previewHighFidelity,
+                debounceNanoseconds: 160_000_000
             )
         case .alwaysHighQuality:
             return RenderDecision(
                 quality: .previewHighFidelity,
-                debounceNanoseconds: isPlaying ? 75_000_000 : 160_000_000,
-                minimumLiveInterval: 0.16
+                debounceNanoseconds: 160_000_000
             )
         }
     }
@@ -187,6 +187,5 @@ final class PreviewRenderController: ObservableObject {
     private struct RenderDecision {
         var quality: RenderQuality
         var debounceNanoseconds: UInt64
-        var minimumLiveInterval: TimeInterval
     }
 }

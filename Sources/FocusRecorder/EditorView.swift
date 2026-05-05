@@ -38,9 +38,13 @@ struct EditorView: View {
         Group {
             if let session = model.currentSession {
                 content(session: session)
-                    .onAppear { playback.ensure(url: session.rawVideoURL) }
+                    .onAppear {
+                        playback.ensure(url: session.rawVideoURL)
+                        previewRender.resetToApproximate(cache: model.previewCache)
+                    }
                     .onChange(of: session.rawVideoURL) { _, newURL in
                         playback.ensure(url: newURL)
+                        previewRender.resetToApproximate(cache: model.previewCache)
                     }
             } else {
                 ContentUnavailableView(
@@ -56,7 +60,7 @@ struct EditorView: View {
     @ViewBuilder
     private func content(session: RecordingSession) -> some View {
         VStack(spacing: 0) {
-            EditorTopBar(session: session)
+            EditorTopBar(session: session, previewRender: previewRender)
                 .environmentObject(model)
             Divider()
             HSplitView {
@@ -206,6 +210,7 @@ extension FocusedValues {
 private struct EditorTopBar: View {
     @EnvironmentObject var model: AppViewModel
     let session: RecordingSession
+    @ObservedObject var previewRender: PreviewRenderController
 
     var body: some View {
         HStack(spacing: 14) {
@@ -220,7 +225,15 @@ private struct EditorTopBar: View {
             }
             Spacer()
 
-            Toggle(isOn: livePreviewBinding) {
+            Toggle(isOn: Binding(
+                get: { previewRender.mode == .highFidelity },
+                set: { enabled in
+                    previewRender.setMode(
+                        enabled ? .highFidelity : .approximate,
+                        cache: model.previewCache
+                    )
+                }
+            )) {
                 Label("Live Preview", systemImage: "eye")
             }
             .toggleStyle(.button)
@@ -282,17 +295,6 @@ private struct EditorTopBar: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
     }
-
-    private var livePreviewBinding: Binding<Bool> {
-        Binding(
-            get: { session.edit.previewRenderMode == .highFidelity },
-            set: { enabled in
-                var edit = session.edit
-                edit.previewRenderMode = enabled ? .highFidelity : .approximate
-                model.updateEditSettings(edit, recordUndo: true)
-            }
-        )
-    }
 }
 
 // MARK: - Preview area
@@ -309,27 +311,30 @@ private struct EditorPreview: View {
         ZStack {
             background
             GeometryReader { proxy in
-                framedVideo(in: proxy.size)
+                if previewRender.mode == .highFidelity {
+                    MetalPreviewHostView(session: session, player: controller.player, enabled: true)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                } else {
+                    framedVideo(in: proxy.size)
+                }
             }
-            if previewRender.finalPreviewVisible {
+            if previewRender.mode != .highFidelity, previewRender.finalPreviewVisible {
                 finalPreviewLayer
             }
         }
         .onAppear {
-            updatePreviewFrameState(time: playbackTime)
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer
-            )
+            if previewRender.mode != .highFidelity {
+                updatePreviewFrameState(time: playbackTime)
+            }
+            model.previewCache.clearCurrentFrame()
         }
         .onDisappear {
             model.previewCache.clearCurrentFrame()
         }
         .onChange(of: playbackTime) { _, newTime in
-            updatePreviewFrameState(time: newTime)
+            if previewRender.mode != .highFidelity {
+                updatePreviewFrameState(time: newTime)
+            }
             previewRender.requestFrameIfAllowed(
                 session: session,
                 time: newTime,
@@ -339,23 +344,15 @@ private struct EditorPreview: View {
             )
         }
         .onChange(of: controller.isPlaying) { _, isPlaying in
-            updatePreviewFrameState(time: playbackTime)
+            if previewRender.mode != .highFidelity {
+                updatePreviewFrameState(time: playbackTime)
+            }
             previewRender.requestFrameIfAllowed(
                 session: session,
                 time: playbackTime,
                 isPlaying: isPlaying,
                 cache: model.previewCache,
                 renderer: model.renderer
-            )
-        }
-        .onChange(of: session.edit.previewRenderMode) { _, _ in
-            previewRender.requestFrameIfAllowed(
-                session: session,
-                time: playbackTime,
-                isPlaying: controller.isPlaying,
-                cache: model.previewCache,
-                renderer: model.renderer,
-                debounce: false
             )
         }
         .onChange(of: session.edit.finalPreviewPolicy) { _, _ in
@@ -1813,7 +1810,7 @@ private struct ZoomCard: View {
                 var u = zoom; u.scale = $0; onCommit(u)
             } onBegin: { onBegin() }
 
-            Toggle("Cinematic cursor follow", isOn: Binding(
+            Toggle("Follow cursor", isOn: Binding(
                 get: { zoom.followCursor },
                 set: { value in
                     var u = zoom
@@ -1836,7 +1833,22 @@ private struct ZoomCard: View {
             }
 
             if zoom.followCursor {
-                SliderRow(label: "Camera smooth", value: zoom.followCursorSmoothing, range: 0...2, suffix: "") {
+                Picker("Follow style", selection: Binding(
+                    get: { zoom.followCursorStyle },
+                    set: { style in
+                        var u = zoom
+                        u.followCursorStyle = style
+                        onBegin()
+                        onCommit(u)
+                    }
+                )) {
+                    ForEach(CursorFollowStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                SliderRow(label: "Smoothness", value: zoom.followCursorSmoothing, range: 0...2, suffix: "") {
                     var u = zoom
                     u.followCursorSmoothing = $0
                     onChange(u)
@@ -1854,6 +1866,27 @@ private struct ZoomCard: View {
                     u.followCursorDelay = $0
                     onCommit(u)
                 } onBegin: { onBegin() }
+
+                switch zoom.followCursorStyle {
+                case .cinematic:
+                    DeadZoneEditor(
+                        zoom: zoom,
+                        width: width,
+                        height: height,
+                        onBegin: onBegin,
+                        onChange: onChange,
+                        onCommit: onCommit
+                    )
+                case .centered:
+                    CursorAnchorSelector(
+                        zoom: zoom,
+                        width: width,
+                        height: height,
+                        onBegin: onBegin,
+                        onChange: onChange,
+                        onCommit: onCommit
+                    )
+                }
             }
 
             Divider()
@@ -1964,6 +1997,19 @@ private struct MultiZoomCard: View {
         zooms.allSatisfy(\.followCursor)
     }
 
+    private var averageFollowSmoothing: Double {
+        zooms.reduce(0) { $0 + $1.followCursorSmoothing } / Double(max(1, zooms.count))
+    }
+
+    private var averageFollowDelay: Double {
+        zooms.reduce(0) { $0 + $1.followCursorDelay } / Double(max(1, zooms.count))
+    }
+
+    private var commonFollowStyle: CursorFollowStyle {
+        let first = zooms.first?.followCursorStyle ?? .cinematic
+        return zooms.allSatisfy { $0.followCursorStyle == first } ? first : .cinematic
+    }
+
     private var commonEasing: ZoomEasing {
         let first = zooms.first?.easing ?? .smooth
         return zooms.allSatisfy { $0.easing == first } ? first : .smooth
@@ -1992,6 +2038,28 @@ private struct MultiZoomCard: View {
                     onCommit { $0.followCursor = value }
                 }
             ))
+
+            if allFollowCursor {
+                Picker("Follow style", selection: Binding(get: { commonFollowStyle }, set: { style in
+                    onBegin()
+                    onCommit { $0.followCursorStyle = style }
+                })) {
+                    ForEach(CursorFollowStyle.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                SliderRow(label: "Smoothness", value: averageFollowSmoothing, range: 0...2, suffix: "") { value in
+                    onChange { $0.followCursorSmoothing = value }
+                } onCommit: { value in
+                    onCommit { $0.followCursorSmoothing = value }
+                } onBegin: { onBegin() }
+
+                SliderRow(label: "Cursor delay", value: averageFollowDelay, range: 0...0.8, suffix: "s") { value in
+                    onChange { $0.followCursorDelay = value }
+                } onCommit: { value in
+                    onCommit { $0.followCursorDelay = value }
+                } onBegin: { onBegin() }
+            }
 
             HStack {
                 Text("Easing")
@@ -2110,6 +2178,196 @@ private struct ZoomCenterPicker: View {
             }
             return path
         }
+    }
+}
+
+private struct DeadZoneEditor: View {
+    let zoom: ZoomKeyframe
+    let width: Double
+    let height: Double
+    let onBegin: () -> Void
+    let onChange: (ZoomKeyframe) -> Void
+    let onCommit: (ZoomKeyframe) -> Void
+    @State private var dragging = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Dead zone")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            GeometryReader { proxy in
+                let size = proxy.size
+                let zoneWidth = size.width * CGFloat(zoom.followCursorDeadZoneWidth)
+                let zoneHeight = size.height * CGFloat(zoom.followCursorDeadZoneHeight)
+                let zone = CGRect(
+                    x: (size.width - zoneWidth) / 2,
+                    y: (size.height - zoneHeight) / 2,
+                    width: zoneWidth,
+                    height: zoneHeight
+                )
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.black.opacity(0.42))
+                    SelectorGrid()
+                        .stroke(Color.white.opacity(0.13), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.accentColor.opacity(0.14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(Color.accentColor.opacity(0.9), lineWidth: 1.5)
+                        )
+                        .frame(width: zone.width, height: zone.height)
+                        .position(x: zone.midX, y: zone.midY)
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 11, height: 11)
+                        .overlay(Circle().stroke(Color.white.opacity(0.95), lineWidth: 1.5))
+                        .position(x: zone.maxX, y: zone.maxY)
+                }
+                .contentShape(Rectangle())
+                .gesture(dragGesture(size: size))
+                .onTapGesture(count: 2) {
+                    var u = zoom
+                    u.followCursorDeadZoneWidth = 0.35
+                    u.followCursorDeadZoneHeight = 0.30
+                    onBegin()
+                    onCommit(u)
+                }
+            }
+            .aspectRatio(max(1, width) / max(1, height), contentMode: .fit)
+            .frame(maxHeight: 120)
+            Text("Drag the handle to resize. Double-click to reset.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func dragGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if !dragging {
+                    dragging = true
+                    onBegin()
+                }
+                onChange(updatedZoom(location: value.location, size: size))
+            }
+            .onEnded { value in
+                onCommit(updatedZoom(location: value.location, size: size))
+                dragging = false
+            }
+    }
+
+    private func updatedZoom(location: CGPoint, size: CGSize) -> ZoomKeyframe {
+        var updated = zoom
+        let dx = abs(location.x - size.width / 2)
+        let dy = abs(location.y - size.height / 2)
+        updated.followCursorDeadZoneWidth = min(max(0.08, Double(dx * 2 / max(1, size.width))), 0.92)
+        updated.followCursorDeadZoneHeight = min(max(0.08, Double(dy * 2 / max(1, size.height))), 0.92)
+        return updated
+    }
+}
+
+private struct CursorAnchorSelector: View {
+    let zoom: ZoomKeyframe
+    let width: Double
+    let height: Double
+    let onBegin: () -> Void
+    let onChange: (ZoomKeyframe) -> Void
+    let onCommit: (ZoomKeyframe) -> Void
+    @State private var dragging = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Cursor position in frame")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            GeometryReader { proxy in
+                let size = proxy.size
+                let marker = CGPoint(
+                    x: CGFloat(zoom.followCursorAnchorX) * size.width,
+                    y: CGFloat(zoom.followCursorAnchorY) * size.height
+                )
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.black.opacity(0.42))
+                    SelectorGrid()
+                        .stroke(Color.white.opacity(0.13), lineWidth: 1)
+                    Path { path in
+                        path.move(to: CGPoint(x: marker.x, y: 0))
+                        path.addLine(to: CGPoint(x: marker.x, y: size.height))
+                        path.move(to: CGPoint(x: 0, y: marker.y))
+                        path.addLine(to: CGPoint(x: size.width, y: marker.y))
+                    }
+                    .stroke(Color.accentColor.opacity(0.32), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                    Image(systemName: "cursorarrow")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
+                        .position(marker)
+                    Circle()
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1.5)
+                        .frame(width: 28, height: 28)
+                        .position(marker)
+                }
+                .contentShape(Rectangle())
+                .gesture(dragGesture(size: size))
+            }
+            .aspectRatio(max(1, width) / max(1, height), contentMode: .fit)
+            .frame(maxHeight: 120)
+            HStack(spacing: 6) {
+                anchorButton("Left", x: 0.32, y: 0.5)
+                anchorButton("Center", x: 0.5, y: 0.5)
+                anchorButton("Right", x: 0.68, y: 0.5)
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func anchorButton(_ title: String, x: Double, y: Double) -> some View {
+        Button(title) {
+            var u = zoom
+            u.followCursorAnchorX = x
+            u.followCursorAnchorY = y
+            onBegin()
+            onCommit(u)
+        }
+    }
+
+    private func dragGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if !dragging {
+                    dragging = true
+                    onBegin()
+                }
+                onChange(updatedZoom(location: value.location, size: size))
+            }
+            .onEnded { value in
+                onCommit(updatedZoom(location: value.location, size: size))
+                dragging = false
+            }
+    }
+
+    private func updatedZoom(location: CGPoint, size: CGSize) -> ZoomKeyframe {
+        var updated = zoom
+        updated.followCursorAnchorX = min(max(0.12, Double(location.x / max(1, size.width))), 0.88)
+        updated.followCursorAnchorY = min(max(0.12, Double(location.y / max(1, size.height))), 0.88)
+        return updated
+    }
+}
+
+private struct SelectorGrid: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for fraction in [1.0 / 3.0, 2.0 / 3.0] {
+            let x = rect.minX + rect.width * fraction
+            path.move(to: CGPoint(x: x, y: rect.minY))
+            path.addLine(to: CGPoint(x: x, y: rect.maxY))
+            let y = rect.minY + rect.height * fraction
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        return path
     }
 }
 
@@ -2361,7 +2619,7 @@ private struct PolishInspector: View {
             } onBegin: { model.beginUndoTransaction() }
 
             Toggle("Preview motion blur", isOn: previewMotionBlurBinding)
-                .help("Apply motion blur when rendering paused or explicit high-fidelity preview frames.")
+                .help("Apply the lightweight GPU motion-blur preview during Live Preview and paused final preview frames.")
 
             Divider()
 
@@ -2371,7 +2629,7 @@ private struct PolishInspector: View {
                     Text(policy.label).tag(policy)
                 }
             }
-            .help("Controls when final-quality preview frames may be rendered in the editor.")
+            .help("Controls paused final-quality preview frames. Live playback uses the Metal preview renderer.")
         }
     }
 

@@ -157,6 +157,10 @@ final class AppViewModel: ObservableObject {
         normalized.bezier = normalized.bezier.clamped()
         normalized.followCursorSmoothing = min(max(0, normalized.followCursorSmoothing), 2)
         normalized.followCursorDelay = min(max(0, normalized.followCursorDelay), 0.8)
+        normalized.followCursorDeadZoneWidth = min(max(0.08, normalized.followCursorDeadZoneWidth), 0.92)
+        normalized.followCursorDeadZoneHeight = min(max(0.08, normalized.followCursorDeadZoneHeight), 0.92)
+        normalized.followCursorAnchorX = min(max(0.12, normalized.followCursorAnchorX), 0.88)
+        normalized.followCursorAnchorY = min(max(0.12, normalized.followCursorAnchorY), 0.88)
         updated.zooms[index] = normalized
         updated.zooms.sort { $0.start < $1.start }
         applySession(updated)
@@ -392,6 +396,10 @@ final class AppViewModel: ObservableObject {
             zoom.bezier = zoom.bezier.clamped()
             zoom.followCursorSmoothing = min(max(0, zoom.followCursorSmoothing), 2)
             zoom.followCursorDelay = min(max(0, zoom.followCursorDelay), 0.8)
+            zoom.followCursorDeadZoneWidth = min(max(0.08, zoom.followCursorDeadZoneWidth), 0.92)
+            zoom.followCursorDeadZoneHeight = min(max(0.08, zoom.followCursorDeadZoneHeight), 0.92)
+            zoom.followCursorAnchorX = min(max(0.12, zoom.followCursorAnchorX), 0.88)
+            zoom.followCursorAnchorY = min(max(0.12, zoom.followCursorAnchorY), 0.88)
             updated.zooms[index] = zoom
         }
         updated.zooms.sort { $0.start < $1.start }

@@ -305,6 +305,20 @@ enum ZoomEasing: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum CursorFollowStyle: String, Codable, CaseIterable, Identifiable {
+    case cinematic
+    case centered
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .cinematic: return "Cinematic"
+        case .centered: return "Cursor centered"
+        }
+    }
+}
+
 struct CubicBezier: Codable, Hashable, Equatable {
     var x1: Double
     var y1: Double
@@ -382,13 +396,22 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
     var zoomOutDuration: Double
     var bezier: CubicBezier = .smooth
     var followCursor: Bool = false
+    var followCursorStyle: CursorFollowStyle = .cinematic
     /// Time-based smoothing for follow-cursor zoom center tracking. 0 tracks tightly, 2 is very smooth.
     var followCursorSmoothing: Double = 0.72
     /// Intentional camera lag in seconds while the zoom center follows the cursor.
     var followCursorDelay: Double = 0.10
+    /// Fraction of the zoomed viewport where the cursor can move before the cinematic camera follows.
+    var followCursorDeadZoneWidth: Double = 0.35
+    var followCursorDeadZoneHeight: Double = 0.30
+    /// Viewport anchor used by centered cursor follow. 0.5,0.5 keeps the cursor visually centered.
+    var followCursorAnchorX: Double = 0.5
+    var followCursorAnchorY: Double = 0.5
 
     enum CodingKeys: String, CodingKey {
-        case id, start, duration, scale, centerX, centerY, easing, rampFraction, zoomInDuration, zoomOutDuration, bezier, followCursor, followCursorSmoothing, followCursorDelay
+        case id, start, duration, scale, centerX, centerY, easing, rampFraction, zoomInDuration, zoomOutDuration, bezier
+        case followCursor, followCursorStyle, followCursorSmoothing, followCursorDelay
+        case followCursorDeadZoneWidth, followCursorDeadZoneHeight, followCursorAnchorX, followCursorAnchorY
     }
 
     init(
@@ -404,8 +427,13 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         zoomOutDuration: Double? = nil,
         bezier: CubicBezier? = nil,
         followCursor: Bool = false,
+        followCursorStyle: CursorFollowStyle = .cinematic,
         followCursorSmoothing: Double = 0.72,
-        followCursorDelay: Double = 0.10
+        followCursorDelay: Double = 0.10,
+        followCursorDeadZoneWidth: Double = 0.35,
+        followCursorDeadZoneHeight: Double = 0.30,
+        followCursorAnchorX: Double = 0.5,
+        followCursorAnchorY: Double = 0.5
     ) {
         self.id = id
         self.start = start
@@ -420,8 +448,13 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         self.zoomOutDuration = zoomOutDuration ?? rampDuration
         self.bezier = (bezier ?? easing.curve).clamped()
         self.followCursor = followCursor
+        self.followCursorStyle = followCursorStyle
         self.followCursorSmoothing = min(max(followCursorSmoothing, 0), 2)
         self.followCursorDelay = min(max(followCursorDelay, 0), 0.8)
+        self.followCursorDeadZoneWidth = min(max(followCursorDeadZoneWidth, 0.08), 0.92)
+        self.followCursorDeadZoneHeight = min(max(followCursorDeadZoneHeight, 0.08), 0.92)
+        self.followCursorAnchorX = min(max(followCursorAnchorX, 0.12), 0.88)
+        self.followCursorAnchorY = min(max(followCursorAnchorY, 0.12), 0.88)
     }
 
     init(from decoder: Decoder) throws {
@@ -439,8 +472,13 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         zoomOutDuration = try container.decodeIfPresent(Double.self, forKey: .zoomOutDuration) ?? fallbackRampDuration
         bezier = (try container.decodeIfPresent(CubicBezier.self, forKey: .bezier) ?? easing.curve).clamped()
         followCursor = try container.decodeIfPresent(Bool.self, forKey: .followCursor) ?? false
-        followCursorSmoothing = try container.decodeIfPresent(Double.self, forKey: .followCursorSmoothing) ?? 0.72
-        followCursorDelay = try container.decodeIfPresent(Double.self, forKey: .followCursorDelay) ?? 0.10
+        followCursorStyle = try container.decodeIfPresent(CursorFollowStyle.self, forKey: .followCursorStyle) ?? .cinematic
+        followCursorSmoothing = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorSmoothing) ?? 0.72, 0), 2)
+        followCursorDelay = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDelay) ?? 0.10, 0), 0.8)
+        followCursorDeadZoneWidth = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneWidth) ?? 0.35, 0.08), 0.92)
+        followCursorDeadZoneHeight = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneHeight) ?? 0.30, 0.08), 0.92)
+        followCursorAnchorX = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorX) ?? 0.5, 0.12), 0.88)
+        followCursorAnchorY = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorY) ?? 0.5, 0.12), 0.88)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -457,8 +495,13 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         try container.encode(zoomOutDuration, forKey: .zoomOutDuration)
         try container.encode(bezier, forKey: .bezier)
         try container.encode(followCursor, forKey: .followCursor)
+        try container.encode(followCursorStyle, forKey: .followCursorStyle)
         try container.encode(followCursorSmoothing, forKey: .followCursorSmoothing)
         try container.encode(followCursorDelay, forKey: .followCursorDelay)
+        try container.encode(followCursorDeadZoneWidth, forKey: .followCursorDeadZoneWidth)
+        try container.encode(followCursorDeadZoneHeight, forKey: .followCursorDeadZoneHeight)
+        try container.encode(followCursorAnchorX, forKey: .followCursorAnchorX)
+        try container.encode(followCursorAnchorY, forKey: .followCursorAnchorY)
     }
 }
 
@@ -713,15 +756,32 @@ func cinematicZoomCameraCenter(for zoom: ZoomKeyframe, at time: Double, session:
             smoothing: zoom.followCursorSmoothing,
             window: session.settings.cursorSmoothingWindow
         ) {
-            camera = cinematicCameraStep(
-                camera: camera,
-                cursor: cursor,
-                screenWidth: screenWidth,
-                screenHeight: screenHeight,
-                zoomScale: scale,
-                followSpeed: followSpeed,
-                dt: dt
-            )
+            let current = CameraState(center: camera)
+            switch zoom.followCursorStyle {
+            case .cinematic:
+                camera = updateCamera(
+                    current: current,
+                    cursor: cursor,
+                    zoom: scale,
+                    screenSize: CGSize(width: screenWidth, height: screenHeight),
+                    dt: dt,
+                    followSpeed: followSpeed,
+                    deadZoneFraction: CGSize(
+                        width: zoom.followCursorDeadZoneWidth,
+                        height: zoom.followCursorDeadZoneHeight
+                    )
+                ).center
+            case .centered:
+                camera = updateCursorAnchorCamera(
+                    current: current,
+                    cursor: cursor,
+                    zoom: scale,
+                    screenSize: CGSize(width: screenWidth, height: screenHeight),
+                    dt: dt,
+                    followSpeed: followSpeed,
+                    anchor: CGPoint(x: zoom.followCursorAnchorX, y: zoom.followCursorAnchorY)
+                ).center
+            }
         } else {
             camera = clampedCameraCenter(
                 camera,
@@ -741,30 +801,43 @@ func cinematicZoomCameraCenter(for zoom: ZoomKeyframe, at time: Double, session:
     )
 }
 
-private func zoomScale(for zoom: ZoomKeyframe, at time: Double) -> Double {
-    let progress = min(max((time - zoom.start) / max(0.001, zoom.duration), 0), 1)
-    return pow(max(1, zoom.scale), zoomEnvelope(progress: progress, zoom: zoom))
+struct CameraState {
+    var center: CGPoint
+    var velocity: CGPoint = .zero
 }
 
-private func cinematicCameraStep(
-    camera: CGPoint,
-    cursor: CGPoint,
-    screenWidth: Double,
-    screenHeight: Double,
-    zoomScale: Double,
+func updateCamera(
+    current: CameraState,
+    cursor: CGPoint?,
+    zoom: Double,
+    screenSize: CGSize,
+    dt: Double,
     followSpeed: Double,
-    dt: Double
-) -> CGPoint {
-    let current = clampedCameraCenter(camera, screenWidth: screenWidth, screenHeight: screenHeight, zoomScale: zoomScale)
-    guard zoomScale > 1.001 else { return current }
+    deadZoneFraction: CGSize = CGSize(width: 0.35, height: 0.30)
+) -> CameraState {
+    let screenWidth = Double(screenSize.width)
+    let screenHeight = Double(screenSize.height)
+    let clampedCurrent = clampedCameraCenter(
+        current.center,
+        screenWidth: screenWidth,
+        screenHeight: screenHeight,
+        zoomScale: zoom
+    )
+    guard zoom > 1.001, let cursor else {
+        let velocity = CGPoint(
+            x: dt > 0 ? (clampedCurrent.x - current.center.x) / dt : 0,
+            y: dt > 0 ? (clampedCurrent.y - current.center.y) / dt : 0
+        )
+        return CameraState(center: clampedCurrent, velocity: velocity)
+    }
 
-    let viewWidth = screenWidth / max(zoomScale, 0.001)
-    let viewHeight = screenHeight / max(zoomScale, 0.001)
-    let deadZoneWidth = viewWidth * 0.35
-    let deadZoneHeight = viewHeight * 0.30
+    let viewWidth = screenWidth / max(zoom, 0.001)
+    let viewHeight = screenHeight / max(zoom, 0.001)
+    let deadZoneWidth = viewWidth * min(max(Double(deadZoneFraction.width), 0.05), 0.95)
+    let deadZoneHeight = viewHeight * min(max(Double(deadZoneFraction.height), 0.05), 0.95)
 
-    var targetX = Double(current.x)
-    var targetY = Double(current.y)
+    var targetX = Double(clampedCurrent.x)
+    var targetY = Double(clampedCurrent.y)
     let cursorX = Double(cursor.x)
     let cursorY = Double(cursor.y)
     let left = targetX - deadZoneWidth / 2
@@ -788,17 +861,111 @@ private func cinematicCameraStep(
         CGPoint(x: targetX, y: targetY),
         screenWidth: screenWidth,
         screenHeight: screenHeight,
-        zoomScale: zoomScale
+        zoomScale: zoom
     )
     let alpha = min(max(1 - exp(-followSpeed * max(0, dt)), 0), 1)
-    let smoothed = CGPoint(
-        x: Double(current.x) + (Double(target.x) - Double(current.x)) * alpha,
-        y: Double(current.y) + (Double(target.y) - Double(current.y)) * alpha
+    let smoothed = clampedCameraCenter(
+        CGPoint(
+            x: Double(clampedCurrent.x) + (Double(target.x) - Double(clampedCurrent.x)) * alpha,
+            y: Double(clampedCurrent.y) + (Double(target.y) - Double(clampedCurrent.y)) * alpha
+        ),
+        screenWidth: screenWidth,
+        screenHeight: screenHeight,
+        zoomScale: zoom
     )
-    return clampedCameraCenter(smoothed, screenWidth: screenWidth, screenHeight: screenHeight, zoomScale: zoomScale)
+    let safeDt = max(0.000_001, dt)
+    return CameraState(
+        center: smoothed,
+        velocity: CGPoint(
+            x: (Double(smoothed.x) - Double(current.center.x)) / safeDt,
+            y: (Double(smoothed.y) - Double(current.center.y)) / safeDt
+        )
+    )
 }
 
-private func clampedCameraCenter(
+func updateCursorAnchorCamera(
+    current: CameraState,
+    cursor: CGPoint?,
+    zoom: Double,
+    screenSize: CGSize,
+    dt: Double,
+    followSpeed: Double,
+    anchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
+) -> CameraState {
+    let screenWidth = Double(screenSize.width)
+    let screenHeight = Double(screenSize.height)
+    let clampedCurrent = clampedCameraCenter(
+        current.center,
+        screenWidth: screenWidth,
+        screenHeight: screenHeight,
+        zoomScale: zoom
+    )
+    guard zoom > 1.001, let cursor else {
+        let velocity = CGPoint(
+            x: dt > 0 ? (clampedCurrent.x - current.center.x) / dt : 0,
+            y: dt > 0 ? (clampedCurrent.y - current.center.y) / dt : 0
+        )
+        return CameraState(center: clampedCurrent, velocity: velocity)
+    }
+
+    let viewWidth = screenWidth / max(zoom, 0.001)
+    let viewHeight = screenHeight / max(zoom, 0.001)
+    let anchorX = min(max(Double(anchor.x), 0.02), 0.98)
+    let anchorY = min(max(Double(anchor.y), 0.02), 0.98)
+    let target = clampedCameraCenter(
+        CGPoint(
+            x: Double(cursor.x) + (0.5 - anchorX) * viewWidth,
+            y: Double(cursor.y) + (0.5 - anchorY) * viewHeight
+        ),
+        screenWidth: screenWidth,
+        screenHeight: screenHeight,
+        zoomScale: zoom
+    )
+    let alpha = min(max(1 - exp(-followSpeed * max(0, dt)), 0), 1)
+    let smoothed = clampedCameraCenter(
+        CGPoint(
+            x: Double(clampedCurrent.x) + (Double(target.x) - Double(clampedCurrent.x)) * alpha,
+            y: Double(clampedCurrent.y) + (Double(target.y) - Double(clampedCurrent.y)) * alpha
+        ),
+        screenWidth: screenWidth,
+        screenHeight: screenHeight,
+        zoomScale: zoom
+    )
+    let safeDt = max(0.000_001, dt)
+    return CameraState(
+        center: smoothed,
+        velocity: CGPoint(
+            x: (Double(smoothed.x) - Double(current.center.x)) / safeDt,
+            y: (Double(smoothed.y) - Double(current.center.y)) / safeDt
+        )
+    )
+}
+
+func zoomScale(for zoom: ZoomKeyframe, at time: Double) -> Double {
+    let progress = min(max((time - zoom.start) / max(0.001, zoom.duration), 0), 1)
+    return pow(max(1, zoom.scale), zoomEnvelope(progress: progress, zoom: zoom))
+}
+
+private func cinematicCameraStep(
+    camera: CGPoint,
+    cursor: CGPoint,
+    screenWidth: Double,
+    screenHeight: Double,
+    zoomScale: Double,
+    followSpeed: Double,
+    dt: Double
+) -> CGPoint {
+    updateCamera(
+        current: CameraState(center: camera),
+        cursor: cursor,
+        zoom: zoomScale,
+        screenSize: CGSize(width: screenWidth, height: screenHeight),
+        dt: dt,
+        followSpeed: followSpeed
+    ).center
+}
+
+func clampedCameraCenter(
     _ point: CGPoint,
     screenWidth: Double,
     screenHeight: Double,
@@ -822,7 +989,7 @@ private func clampedCameraAxis(_ value: Double, screenSize: Double, viewSize: Do
     return min(max(value, minValue), maxValue)
 }
 
-private func cinematicFollowSpeed(forSmoothing smoothing: Double) -> Double {
+func cinematicFollowSpeed(forSmoothing smoothing: Double) -> Double {
     let amount = min(max(smoothing, 0), 2)
     return 14 - amount * 3
 }
