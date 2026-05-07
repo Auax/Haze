@@ -1,120 +1,93 @@
+<div align="center">
+
+<img src="https://github.com/user-attachments/assets/086eb139-48bb-43d4-98b2-1c74f8e93eb4" width="140" alt="Haze App Icon" />
+
 # Haze
 
-A native macOS screen recorder for clean product demos, tutorials, cursor motion, and cinematic zooms.
+### Native macOS screen recording for polished demos, cinematic zooms, and smooth cursor motion
 
-[Features](#features) · [Quick Start](#quick-start) · [Permissions](#permissions) · [Roadmap](#roadmap)
+A lightweight macOS recorder built for product demos, tutorials, coding videos, and visual walkthroughs.
+
+[Features](#features) •
+[Quick Start](#quick-start) •
+[Permissions](#permissions) •
+[Project Structure](#project-structure) •
+[Roadmap](#roadmap)
+
+</div>
 
 ---
 
 ## Overview
 
-Haze is a lightweight macOS recording app. It captures your screen, tracks cursor movement, suggests smooth zooms automatically, and renders a final video with polished cursor and zoom effects.
+Haze is a native macOS screen recorder focused on producing clean, polished recordings with minimal setup.
 
-It is designed for people who record product walkthroughs, coding demos, tutorials, bug reports, or short visual explanations and want something more polished than the default macOS recorder.
+It captures your screen, tracks cursor movement, suggests automatic zooms, and renders a final video with smooth motion and cinematic presentation effects.
+
+Built for:
+
+- Product demos
+- Coding walkthroughs
+- Tutorials
+- Bug reports
+- UI showcases
+- Visual explanations
+
+Unlike the default macOS recorder, Haze is designed around post-processing and presentation quality.
+
+---
 
 ## Features
 
-| Capture                     | Editing                 | Export                  |
-| --------------------------- | ----------------------- | ----------------------- |
-| Display recording           | Editable zoom keyframes | Rendered cursor overlay |
-| Window recording            | Timeline-based workflow | Smooth zoom animation   |
-| Region recording            | Auto zoom suggestions   | Configurable bitrate    |
-| FPS and resolution controls | Cursor timeline sidecar | Final video output      |
+<table>
+<tr>
+<th align="left">Capture</th>
+<th align="left">Editing</th>
+<th align="left">Export</th>
+</tr>
 
-**Minimum target: macOS 15.0+**
+<tr>
+<td>
+
+- Display recording
+- Window recording
+- Region recording
+- FPS controls
+- Resolution controls
+
+</td>
+
+<td>
+
+- Editable zoom keyframes
+- Timeline workflow
+- Auto zoom suggestions
+- Cursor sidecar timeline
+- Timeline-based editing
+
+</td>
+
+<td>
+
+- Smooth cursor rendering
+- Cinematic zoom animation
+- Configurable bitrate
+- Rendered final video
+- Cursor overlays
+
+</td>
+</tr>
+</table>
+
+> **Minimum target:** macOS 15.0+
+
+---
 
 ## Quick Start
 
-### Xcode
+### Run with Xcode
 
-Open `Haze.xcodeproj` and press **⌘R**. Xcode builds, signs, and launches the app directly.
-
-### Build script
-
-The build script produces a properly bundled and signed `.app` — recommended when testing Screen Recording permission, since macOS ties the permission to the app's bundle identity.
+Open the project and press **⌘R**.
 
 ```bash
-scripts/package-app.sh
-open Build/Haze.app
-```
-
-The app is signed with bundle identifier:
-
-```
-local.haze.app
-```
-
-### CLI (quick iteration)
-
-```bash
-swift run Haze
-```
-
-## Permissions
-
-macOS requires Screen Recording permission before capture can start. The permission is tied to the app identity, so it is most reliable when running the bundled app rather than `swift run`.
-
-Recommended flow:
-
-1. Open `Build/Haze.app` (or run via Xcode)
-2. Start a recording — macOS will prompt for Screen Recording permission
-3. Grant permission in System Settings
-4. Quit and reopen Haze
-
-If permissions get stuck after older builds or signing changes:
-
-```bash
-scripts/reset-screen-recording-permission.sh
-```
-
-Then open the app, grant permission again, quit, and relaunch.
-
-## Output
-
-Recordings are saved to:
-
-```
-~/Movies/Haze
-```
-
-The app stores raw `.mov` recordings alongside timeline sidecar data, then exports a rendered video with cursor and zoom effects applied.
-
-## Project Structure
-
-```
-Haze
-├── Haze.xcodeproj          # Xcode project
-├── Package.swift           # SPM manifest (used by build script and swift run)
-├── Sources/Haze
-│   ├── HazeApp.swift
-│   ├── AppViewModel.swift
-│   ├── CaptureEngine.swift
-│   ├── ContentView.swift
-│   ├── CursorOverlay.swift
-│   ├── EditorView.swift
-│   ├── ExportRenderer.swift
-│   ├── Models.swift
-│   ├── PlayerView.swift
-│   ├── Preferences.swift
-│   ├── PreferencesView.swift
-│   ├── RegionPicker.swift
-│   ├── RenderFrameState.swift
-│   ├── Theme.swift
-│   ├── TimelineStore.swift
-│   ├── Info.plist
-│   ├── Haze.entitlements
-│   └── Resources
-│       ├── AppIcon.icns
-│       └── Cursors/        # SVG cursor artwork
-└── scripts
-    ├── package-app.sh
-    └── reset-screen-recording-permission.sh
-```
-
-## Roadmap
-
-- True playback preview instead of thumbnail-based preview frames
-- Smarter auto zoom detection
-- Richer timeline editing
-- Trimming controls
-- Preview of rendered zoom/cursor effects before export
+open Haze.xcodeproj
