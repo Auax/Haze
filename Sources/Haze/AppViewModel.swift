@@ -22,7 +22,7 @@ final class AppViewModel: ObservableObject {
     private var redoStack: [RecordingSession] = []
     private let undoLimit = 40
     private var undoTransactionIsOpen = false
-    private let zoomPasteboardType = NSPasteboard.PasteboardType("local.focusrecorder.zooms")
+    private let zoomPasteboardType = NSPasteboard.PasteboardType("local.haze.zooms")
 
     struct LibraryItem: Identifiable, Hashable {
         let id: UUID
@@ -71,14 +71,14 @@ final class AppViewModel: ObservableObject {
                         loadLibrary()
                         if PreferencesStore.shared.preferences.openEditorWhenRecordingStops {
                             EditorWindowController.shared.show(model: self)
-                            NotificationCenter.default.post(name: .focusRecorderShowEditor, object: nil)
+                            NotificationCenter.default.post(name: .hazeShowEditor, object: nil)
                         }
-                        NotificationCenter.default.post(name: .focusRecorderShowRecorder, object: nil)
+                        NotificationCenter.default.post(name: .hazeShowRecorder, object: nil)
                     }
                 } else {
                     try await capture.start(settings: settings)
                     if PreferencesStore.shared.preferences.hideBarWhileRecording {
-                        NotificationCenter.default.post(name: .focusRecorderHideRecorder, object: nil)
+                        NotificationCenter.default.post(name: .hazeHideRecorder, object: nil)
                     }
                 }
             } catch {
@@ -99,11 +99,14 @@ final class AppViewModel: ObservableObject {
         guard let session = currentSession else { return }
         pushUndo(session)
         var updated = session
+        let timelineStart = session.timelineContentStart
+        let timelineEnd = max(timelineStart + 0.6, session.timelineContentEnd)
+        let zoomDuration = min(3.5, max(0.6, timelineEnd - timelineStart))
         let cursor = nearestCursor(in: session, at: playbackTime)
             ?? CursorSample(time: playbackTime, x: Double(session.width) / 2, y: Double(session.height) / 2)
         let zoom = ZoomKeyframe(
-            start: max(0, playbackTime - 0.45),
-            duration: 3.5,
+            start: min(max(timelineStart, playbackTime - 0.45), max(timelineStart, timelineEnd - zoomDuration)),
+            duration: zoomDuration,
             scale: max(1.05, settings.automaticZoomScale),
             centerX: cursor.x,
             centerY: cursor.y,
@@ -199,31 +202,120 @@ final class AppViewModel: ObservableObject {
         playbackTime = min(max(t, updated.timelineContentStart), updated.timelineContentEnd - 0.001)
     }
 
+    func splitClipAtPlayhead() {
+        guard let session = currentSession else { return }
+        let t = playbackTime
+        let t0 = session.timelineContentStart
+        let t1 = session.timelineContentEnd
+        guard t > t0 + 0.12, t < t1 - 0.05 else { return }
+
+        pushUndo(session)
+        var updated = session
+        updated.timelineTrimEnd = max(0, updated.approximateDuration - t)
+        updated.normalizeTimelineTrims()
+        applySession(updated)
+        playbackTime = min(max(t, updated.timelineContentStart), updated.timelineContentEnd - 0.001)
+    }
+
     func updateTimelineTrims(trimStart: Double? = nil, trimEnd: Double? = nil, recordUndo: Bool = true) {
         guard var session = currentSession else { return }
         if recordUndo, !undoTransactionIsOpen { pushUndo(session) }
+        let oldStart = session.timelineContentStart
+        let oldEnd = session.timelineContentEnd
         if let trimStart { session.timelineTrimStart = trimStart }
         if let trimEnd { session.timelineTrimEnd = trimEnd }
         session.normalizeTimelineTrims()
+        pushEdgeAttachedZooms(
+            in: &session,
+            oldStart: oldStart,
+            oldEnd: oldEnd,
+            startChanged: trimStart != nil,
+            endChanged: trimEnd != nil
+        )
         applySession(session)
         playbackTime = min(max(playbackTime, session.timelineContentStart), session.timelineContentEnd - 0.001)
     }
 
+    private func pushEdgeAttachedZooms(
+        in session: inout RecordingSession,
+        oldStart: Double,
+        oldEnd: Double,
+        startChanged: Bool,
+        endChanged: Bool
+    ) {
+        let newStart = session.timelineContentStart
+        let newEnd = session.timelineContentEnd
+        let sourceDuration = max(0.2, session.approximateDuration)
+        let edgeSlack = 0.08
+
+        for index in session.zooms.indices {
+            var zoom = session.zooms[index]
+            let zoomEnd = zoom.start + zoom.duration
+            let wasStartAttached = zoom.start <= oldStart + edgeSlack && zoomEnd > oldStart + edgeSlack
+            let wasEndAttached = zoom.start < oldEnd - edgeSlack && zoomEnd >= oldEnd - edgeSlack
+
+            if startChanged, wasStartAttached {
+                zoom.start = newStart
+            }
+
+            if endChanged, wasEndAttached {
+                zoom.start = newEnd - zoom.duration
+            }
+
+            zoom.start = min(max(0, zoom.start), max(0, sourceDuration - zoom.duration))
+            session.zooms[index] = zoom
+        }
+
+        session.zooms.sort { $0.start < $1.start }
+    }
+
     func regenerateAutomaticZooms() {
         guard let session = currentSession else { return }
+        let generated = automaticZoomsForVisibleRange(in: session)
+        guard !generated.isEmpty else { return }
         pushUndo(session)
         var updated = session
-        updated.zooms = CaptureEngine.defaultZooms(
-            samples: updated.cursorSamples,
-            clicks: updated.clicks,
-            keystrokes: updated.keystrokes,
-            settings: updated.settings,
-            width: Double(updated.width),
-            height: Double(updated.height),
-            duration: updated.measuredDuration
-        )
+        updated.zooms = generated
         applySession(updated)
         selectOnlyZoom(updated.zooms.first?.id)
+    }
+
+    func canRegenerateAutomaticZooms(in session: RecordingSession? = nil) -> Bool {
+        guard let session = session ?? currentSession else { return false }
+        return !automaticZoomsForVisibleRange(in: session).isEmpty
+    }
+
+    private func automaticZoomsForVisibleRange(in session: RecordingSession) -> [ZoomKeyframe] {
+        let start = session.timelineContentStart
+        let end = session.timelineContentEnd
+        let visibleDuration = max(0, end - start)
+        guard visibleDuration > 1.5 else { return [] }
+
+        let samples = session.cursorSamples
+            .filter { $0.time >= start && $0.time <= end }
+            .map { CursorSample(time: $0.time - start, x: $0.x, y: $0.y) }
+        let clicks = session.clicks
+            .filter { $0.time >= start && $0.time <= end }
+            .map { MouseClickEvent(time: $0.time - start, x: $0.x, y: $0.y, isRightClick: $0.isRightClick) }
+        let keystrokes = session.keystrokes
+            .filter { $0.time >= start && $0.time <= end }
+            .map { KeystrokeEvent(time: $0.time - start, isModifier: $0.isModifier) }
+
+        let generated = CaptureEngine.defaultZooms(
+            samples: samples,
+            clicks: clicks,
+            keystrokes: keystrokes,
+            settings: session.settings,
+            width: Double(session.width),
+            height: Double(session.height),
+            duration: visibleDuration
+        )
+
+        return generated.map { zoom in
+            var shifted = zoom
+            shifted.start = min(max(start, shifted.start + start), max(start, end - shifted.duration))
+            return shifted
+        }
     }
 
     func clearAllZooms() {
@@ -241,14 +333,17 @@ final class AppViewModel: ObservableObject {
         guard !selected.isEmpty else { return }
         pushUndo(session)
         var updated = session
-        let duration = max(1, session.approximateDuration)
+        let timelineStart = session.timelineContentStart
+        let timelineEnd = max(timelineStart + 0.6, session.timelineContentEnd)
+        let visibleDuration = max(0.6, timelineEnd - timelineStart)
         let gap = 0.05
         var newIDs: [UUID] = []
         for zoom in selected.sorted(by: { $0.start < $1.start }) {
             var duplicate = zoom
             duplicate.id = UUID()
+            duplicate.duration = min(max(0.6, duplicate.duration), visibleDuration)
             let proposedStart = zoom.start + zoom.duration + gap
-            duplicate.start = min(max(0, proposedStart), max(0, duration - duplicate.duration))
+            duplicate.start = min(max(timelineStart, proposedStart), max(timelineStart, timelineEnd - duplicate.duration))
             newIDs.append(duplicate.id)
             updated.zooms.append(duplicate)
         }
@@ -329,14 +424,17 @@ final class AppViewModel: ObservableObject {
         else { return }
         pushUndo(session)
         var updated = session
-        let duration = max(1, session.approximateDuration)
+        let timelineStart = session.timelineContentStart
+        let timelineEnd = max(timelineStart + 0.6, session.timelineContentEnd)
+        let visibleDuration = max(0.6, timelineEnd - timelineStart)
         let firstStart = pasted.map(\.start).min() ?? 0
         var newIDs: [UUID] = []
         for original in pasted.sorted(by: { $0.start < $1.start }) {
             var zoom = original
             zoom.id = UUID()
+            zoom.duration = min(max(0.6, zoom.duration), visibleDuration)
             let offset = original.start - firstStart
-            zoom.start = min(max(0, playbackTime + offset), max(0, duration - zoom.duration))
+            zoom.start = min(max(timelineStart, playbackTime + offset), max(timelineStart, timelineEnd - zoom.duration))
             newIDs.append(zoom.id)
             updated.zooms.append(zoom)
         }
@@ -486,11 +584,11 @@ final class AppViewModel: ObservableObject {
 
     func loadLibrary() {
         let dir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("FocusRecorder", isDirectory: true)
+            .appendingPathComponent("Haze", isDirectory: true)
         guard let contents = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles])
         else { library = []; return }
         let items: [LibraryItem] = contents
-            .filter { $0.pathExtension == "json" || $0.lastPathComponent.hasSuffix(".focusrecorder.json") }
+            .filter { $0.pathExtension == "json" || $0.lastPathComponent.hasSuffix(".haze.json") }
             .compactMap { url in
                 guard let session = try? TimelineStore.load(from: url) else { return nil }
                 return LibraryItem(
@@ -508,7 +606,7 @@ final class AppViewModel: ObservableObject {
         do {
             let session = try TimelineStore.load(from: item.timelineURL)
             setCurrentSession(session)
-            NotificationCenter.default.post(name: .focusRecorderShowEditor, object: nil)
+            NotificationCenter.default.post(name: .hazeShowEditor, object: nil)
         } catch {
             errorMessage = error.localizedDescription
         }

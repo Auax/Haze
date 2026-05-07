@@ -534,7 +534,7 @@ final class LionCursorAssets {
     }
 
     private func assetURL(for shape: CursorShape) -> URL? {
-        Bundle.module.url(forResource: shape.assetName, withExtension: "svg", subdirectory: "Cursors")
+        Bundle.main.url(forResource: shape.assetName, withExtension: "svg", subdirectory: "Cursors")
     }
 
     private func rasterizedCGImage(from image: NSImage) -> CGImage? {

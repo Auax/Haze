@@ -3,12 +3,12 @@ import Combine
 import SwiftUI
 
 @main
-struct FocusRecorderApp: App {
-    @NSApplicationDelegateAdaptor(FocusRecorderAppDelegate.self) private var appDelegate
+struct HazeApp: App {
+    @NSApplicationDelegateAdaptor(HazeAppDelegate.self) private var appDelegate
     @StateObject private var model = AppViewModel.shared
 
     var body: some Scene {
-        Window("Focus Recorder Editor", id: "editor") {
+        Window("Haze Editor", id: "editor") {
             EditorView()
                 .environmentObject(model)
                 .frame(minWidth: 1180, minHeight: 740)
@@ -79,7 +79,7 @@ struct FocusRecorderApp: App {
     }
 }
 
-final class FocusRecorderAppDelegate: NSObject, NSApplicationDelegate {
+final class HazeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         RecordingStatusItemController.shared.install(model: AppViewModel.shared)
         RecorderPanelController.shared.show(model: AppViewModel.shared)
@@ -170,7 +170,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("editor")
-        window.title = "Focus Recorder Editor"
+        window.title = "Haze Editor"
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.contentMinSize = CGSize(width: 1180, height: 740)
@@ -254,7 +254,7 @@ final class RecorderPanelController {
     private func makePanel(model: AppViewModel) -> RecorderPanel {
         let panel = RecorderPanel(size: panelSize)
         panel.identifier = NSUserInterfaceItemIdentifier("recorder")
-        panel.title = "Focus Recorder"
+        panel.title = "Haze"
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -286,9 +286,9 @@ final class RecorderPanelController {
 }
 
 extension Notification.Name {
-    static let focusRecorderShowEditor = Notification.Name("FocusRecorder.showEditor")
-    static let focusRecorderHideRecorder = Notification.Name("FocusRecorder.hideRecorder")
-    static let focusRecorderShowRecorder = Notification.Name("FocusRecorder.showRecorder")
+    static let hazeShowEditor = Notification.Name("Haze.showEditor")
+    static let hazeHideRecorder = Notification.Name("Haze.hideRecorder")
+    static let hazeShowRecorder = Notification.Name("Haze.showRecorder")
 }
 
 @MainActor

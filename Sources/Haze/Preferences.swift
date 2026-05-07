@@ -59,16 +59,17 @@ struct HotkeyBinding: Codable, Hashable {
 }
 
 struct AppPreferences: Codable {
-    var defaultResolutionPreset: ResolutionPreset = .p1080
+    var defaultResolutionPreset: ResolutionPreset = .native
     var defaultFrameRate: Int = 60
-    var defaultBitrateMbps: Double = 18
+    var defaultBitrateMbps: Double = 60
     var defaultRecordSystemAudio: Bool = false
     var defaultRecordMicrophone: Bool = false
 
     var defaultAutomaticZooms: Bool = true
     var defaultAutomaticZoomScale: Double = 1.4
-    var defaultCursorScale: Double = 1.0
-    var defaultCursorSmoothing: Double = 0.78
+    var defaultCursorScale: Double = 2.5
+    var defaultCursorSmoothing: Double = 1.3
+    var defaultCursorSpring: Double = 2.0
     var defaultDetectClicks: Bool = true
     var defaultDetectKeystrokes: Bool = true
     var defaultCursorClickPulse: Bool = true
@@ -86,7 +87,7 @@ struct AppPreferences: Codable {
         case defaultResolutionPreset, defaultFrameRate, defaultBitrateMbps
         case defaultRecordSystemAudio, defaultRecordMicrophone
         case defaultAutomaticZooms, defaultAutomaticZoomScale
-        case defaultCursorScale, defaultCursorSmoothing
+        case defaultCursorScale, defaultCursorSmoothing, defaultCursorSpring
         case defaultDetectClicks, defaultDetectKeystrokes, defaultCursorClickPulse
         case markZoomHotkey, toggleRecordHotkey, duplicateZoomEditorHotkey
         case hideBarWhileRecording, openEditorWhenRecordingStops
@@ -104,6 +105,7 @@ struct AppPreferences: Codable {
         defaultAutomaticZoomScale = try c.decodeIfPresent(Double.self, forKey: .defaultAutomaticZoomScale) ?? fb.defaultAutomaticZoomScale
         defaultCursorScale = try c.decodeIfPresent(Double.self, forKey: .defaultCursorScale) ?? fb.defaultCursorScale
         defaultCursorSmoothing = try c.decodeIfPresent(Double.self, forKey: .defaultCursorSmoothing) ?? fb.defaultCursorSmoothing
+        defaultCursorSpring = try c.decodeIfPresent(Double.self, forKey: .defaultCursorSpring) ?? fb.defaultCursorSpring
         defaultDetectClicks = try c.decodeIfPresent(Bool.self, forKey: .defaultDetectClicks) ?? fb.defaultDetectClicks
         defaultDetectKeystrokes = try c.decodeIfPresent(Bool.self, forKey: .defaultDetectKeystrokes) ?? fb.defaultDetectKeystrokes
         defaultCursorClickPulse = try c.decodeIfPresent(Bool.self, forKey: .defaultCursorClickPulse) ?? fb.defaultCursorClickPulse
@@ -112,6 +114,13 @@ struct AppPreferences: Codable {
         duplicateZoomEditorHotkey = try c.decodeIfPresent(HotkeyBinding.self, forKey: .duplicateZoomEditorHotkey) ?? fb.duplicateZoomEditorHotkey
         hideBarWhileRecording = try c.decodeIfPresent(Bool.self, forKey: .hideBarWhileRecording) ?? fb.hideBarWhileRecording
         openEditorWhenRecordingStops = try c.decodeIfPresent(Bool.self, forKey: .openEditorWhenRecordingStops) ?? fb.openEditorWhenRecordingStops
+    }
+
+    mutating func migrateFactoryDefaults() {
+        if defaultResolutionPreset == .p1080 { defaultResolutionPreset = .native }
+        if defaultBitrateMbps == 18 { defaultBitrateMbps = 60 }
+        if defaultCursorScale == 1.0 { defaultCursorScale = 2.5 }
+        if defaultCursorSmoothing == 0.78 { defaultCursorSmoothing = 1.3 }
     }
 }
 
@@ -123,12 +132,14 @@ final class PreferencesStore: ObservableObject {
         didSet { save() }
     }
 
-    private let key = "FocusRecorder.AppPreferences.v1"
+    private let key = "Haze.AppPreferences.v1"
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: key),
            let decoded = try? JSONDecoder().decode(AppPreferences.self, from: data) {
-            self.preferences = decoded
+            var migrated = decoded
+            migrated.migrateFactoryDefaults()
+            self.preferences = migrated
         } else {
             self.preferences = AppPreferences()
         }
@@ -151,6 +162,7 @@ final class PreferencesStore: ObservableObject {
         settings.automaticZoomScale = p.defaultAutomaticZoomScale
         settings.cursorScale = p.defaultCursorScale
         settings.cursorSmoothing = p.defaultCursorSmoothing
+        settings.cursorSpring = p.defaultCursorSpring
         settings.detectClicks = p.defaultDetectClicks
         settings.detectKeystrokes = p.defaultDetectKeystrokes
         settings.cursorClickPulse = p.defaultCursorClickPulse

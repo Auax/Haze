@@ -1,10 +1,6 @@
-
-
-# Focus Recorder
+# Haze
 
 A native macOS screen recorder for clean product demos, tutorials, cursor motion, and cinematic zooms.
-
-
 
 [Features](#features) · [Quick Start](#quick-start) · [Permissions](#permissions) · [Roadmap](#roadmap)
 
@@ -12,14 +8,11 @@ A native macOS screen recorder for clean product demos, tutorials, cursor motion
 
 ## Overview
 
-Focus Recorder is a lightweight macOS app inspired by Screen Studio. It captures your screen, tracks cursor movement, suggests smooth zooms automatically, and renders a final video with polished cursor and zoom effects.
+Haze is a lightweight macOS recording app. It captures your screen, tracks cursor movement, suggests smooth zooms automatically, and renders a final video with polished cursor and zoom effects.
 
 It is designed for people who record product walkthroughs, coding demos, tutorials, bug reports, or short visual explanations and want something more polished than the default macOS recorder.
 
-
-
 ## Features
-
 
 | Capture                     | Editing                 | Export                  |
 | --------------------------- | ----------------------- | ----------------------- |
@@ -28,44 +21,45 @@ It is designed for people who record product walkthroughs, coding demos, tutoria
 | Region recording            | Auto zoom suggestions   | Configurable bitrate    |
 | FPS and resolution controls | Cursor timeline sidecar | Final video output      |
 
-
-## Built With
-
-
-
-Minimum target: **macOS 15.0+**
+**Minimum target: macOS 15.0+**
 
 ## Quick Start
 
-For the best development experience, run Focus Recorder as an app bundle. macOS Screen Recording permission is tied to the app identity, so the bundle flow is more reliable than `swift run`.
+### Xcode
+
+Open `Haze.xcodeproj` and press **⌘R**. Xcode builds, signs, and launches the app directly.
+
+### Build script
+
+The build script produces a properly bundled and signed `.app` — recommended when testing Screen Recording permission, since macOS ties the permission to the app's bundle identity.
 
 ```bash
 scripts/package-app.sh
-open Build/FocusRecorder.app
+open Build/Haze.app
 ```
 
-The package script builds and signs the app as:
+The app is signed with bundle identifier:
 
-```text
-local.focusrecorder.app
+```
+local.haze.app
 ```
 
-You can also run directly during quick iteration:
+### CLI (quick iteration)
 
 ```bash
-swift run FocusRecorder
+swift run Haze
 ```
 
 ## Permissions
 
-macOS requires Screen Recording permission before capture can start.
+macOS requires Screen Recording permission before capture can start. The permission is tied to the app identity, so it is most reliable when running the bundled app rather than `swift run`.
 
 Recommended flow:
 
-1. Open `Build/FocusRecorder.app`
-2. Start a recording
-3. Grant Screen Recording permission in System Settings
-4. Quit and reopen Focus Recorder
+1. Open `Build/Haze.app` (or run via Xcode)
+2. Start a recording — macOS will prompt for Screen Recording permission
+3. Grant permission in System Settings
+4. Quit and reopen Haze
 
 If permissions get stuck after older builds or signing changes:
 
@@ -79,26 +73,39 @@ Then open the app, grant permission again, quit, and relaunch.
 
 Recordings are saved to:
 
-```text
-~/Movies/FocusRecorder
+```
+~/Movies/Haze
 ```
 
-The app stores raw recordings plus timeline sidecar data, then exports a rendered video with cursor and zoom effects applied.
+The app stores raw `.mov` recordings alongside timeline sidecar data, then exports a rendered video with cursor and zoom effects applied.
 
 ## Project Structure
 
-```text
-FocusRecorder
-├── Package.swift
-├── Sources/FocusRecorder
-│   ├── FocusRecorderApp.swift
-│   ├── ContentView.swift
+```
+Haze
+├── Haze.xcodeproj          # Xcode project
+├── Package.swift           # SPM manifest (used by build script and swift run)
+├── Sources/Haze
+│   ├── HazeApp.swift
+│   ├── AppViewModel.swift
 │   ├── CaptureEngine.swift
+│   ├── ContentView.swift
+│   ├── CursorOverlay.swift
 │   ├── EditorView.swift
 │   ├── ExportRenderer.swift
-│   ├── CursorOverlay.swift
 │   ├── Models.swift
-│   └── RegionPicker.swift
+│   ├── PlayerView.swift
+│   ├── Preferences.swift
+│   ├── PreferencesView.swift
+│   ├── RegionPicker.swift
+│   ├── RenderFrameState.swift
+│   ├── Theme.swift
+│   ├── TimelineStore.swift
+│   ├── Info.plist
+│   ├── Haze.entitlements
+│   └── Resources
+│       ├── AppIcon.icns
+│       └── Cursors/        # SVG cursor artwork
 └── scripts
     ├── package-app.sh
     └── reset-screen-recording-permission.sh
@@ -111,13 +118,3 @@ FocusRecorder
 - Richer timeline editing
 - Trimming controls
 - Preview of rendered zoom/cursor effects before export
-
-## Screenshots
-
-Add real screenshots or GIFs here when you are ready:
-
-- `docs/images/app.png`
-- `docs/images/editor.png`
-- `docs/images/demo.gif`
-
-The included SVG artwork keeps the README presentable until real product screenshots are available.

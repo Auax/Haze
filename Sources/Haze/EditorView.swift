@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import AudioToolbox
+import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -19,8 +20,8 @@ struct EditorView: View {
 
         var title: String {
             switch self {
-            case .zooms:  return "Zooms"
-            case .polish: return "Polish"
+            case .zooms:  return "Zoom"
+            case .polish: return "Background"
             case .cursor: return "Cursor"
             case .export: return "Export"
             }
@@ -29,7 +30,7 @@ struct EditorView: View {
         var icon: String {
             switch self {
             case .zooms:  return "plus.magnifyingglass"
-            case .polish: return "paintpalette"
+            case .polish: return "photo"
             case .cursor: return "cursorarrow"
             case .export: return "square.and.arrow.up"
             }
@@ -54,7 +55,7 @@ struct EditorView: View {
                 )
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.frBackground)
     }
 
     @ViewBuilder
@@ -63,7 +64,6 @@ struct EditorView: View {
             if !isPreviewFullscreen {
                 EditorTopBar(session: session)
                     .environmentObject(model)
-                Divider()
             }
             if isPreviewFullscreen {
                 if let controller = playback.controller {
@@ -74,27 +74,51 @@ struct EditorView: View {
                 }
             } else {
                 HSplitView {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 8) {
                         if let controller = playback.controller {
-                            EditorPreview(
+                            VStack(spacing: 0) {
+                                EditorPreview(
+                                    session: session,
+                                    controller: controller,
+                                    playbackTime: $model.playbackTime,
+                                    selectedZoomID: $model.selectedZoomID
+                                )
+                                .environmentObject(model)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                                Rectangle()
+                                    .fill(Color.frBorder.opacity(0.4))
+                                    .frame(height: 1)
+
+                                VideoControlBar(
+                                    session: session,
+                                    controller: controller,
+                                    playbackTime: $model.playbackTime,
+                                    isPreviewFullscreen: $isPreviewFullscreen,
+                                    onToggleFullscreen: { togglePreviewFullscreen() }
+                                )
+                            }
+                            .background(Color.frPanel)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Color.frBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                            TimelinePanel(
                                 session: session,
                                 controller: controller,
                                 playbackTime: $model.playbackTime,
                                 selectedZoomID: $model.selectedZoomID
                             )
                             .environmentObject(model)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            Divider()
-                            TimelinePanel(
-                                session: session,
-                                controller: controller,
-                                playbackTime: $model.playbackTime,
-                                selectedZoomID: $model.selectedZoomID,
-                                isPreviewFullscreen: $isPreviewFullscreen,
-                                onToggleFullscreen: { togglePreviewFullscreen() }
+                            .frame(height: 200)
+                            .background(Color.frPanel)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Color.frBorder.opacity(0.5), lineWidth: 1)
                             )
-                            .environmentObject(model)
-                            .frame(height: 260)
                             .onAppear {
                                 syncPlaybackRange(session: session, controller: controller)
                             }
@@ -112,9 +136,21 @@ struct EditorView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
+                    .padding(.leading, 8)
+                    .padding(.vertical, 8)
+                    .padding(.trailing, 4)
                     .frame(minWidth: 720)
+
                     Inspector(tab: $inspectorTab, session: session, controller: playback.controller)
                         .environmentObject(model)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.frBorder.opacity(0.5), lineWidth: 1)
+                        )
+                        .padding(.leading, 4)
+                        .padding(.trailing, 8)
+                        .padding(.vertical, 8)
                         .frame(minWidth: 320, idealWidth: 360, maxWidth: 460)
                 }
             }
@@ -301,14 +337,23 @@ private struct EditorTopBar: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(session.rawVideoURL.lastPathComponent)
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.frPrimaryText)
                     .lineLimit(1)
-                Text(session.rawVideoURL.deletingLastPathComponent().path(percentEncoded: false))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(session.rawVideoURL.deletingLastPathComponent().path(percentEncoded: false))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.frSecondaryText)
+                        .lineLimit(1)
+                    Text("•")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.frBorder)
+                    Text("Saved")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.frSecondaryText)
+                }
             }
             Spacer()
 
@@ -316,21 +361,25 @@ private struct EditorTopBar: View {
                 model.undo()
             } label: {
                 Image(systemName: "arrow.uturn.backward")
+                    .foregroundStyle(model.canUndo ? Color.frSecondaryText : Color.frBorder)
             }
             .help("Undo (⌘Z)")
             .disabled(!model.canUndo)
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
 
             Button {
                 model.redo()
             } label: {
                 Image(systemName: "arrow.uturn.forward")
+                    .foregroundStyle(model.canRedo ? Color.frSecondaryText : Color.frBorder)
             }
             .help("Redo (⌘⇧Z)")
             .disabled(!model.canRedo)
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
 
-            Divider().frame(height: 22)
+            Rectangle()
+                .fill(Color.frBorder)
+                .frame(width: 1, height: 22)
 
             if model.renderer.isRendering {
                 ProgressView(value: model.renderer.progress) {
@@ -343,9 +392,11 @@ private struct EditorTopBar: View {
                 Button {
                     model.revealRenderedFile()
                 } label: {
-                    Label("Reveal", systemImage: "doc.on.doc")
+                    Label("Reveal in Finder", systemImage: "doc.on.doc")
                 }
                 .help(rendered.lastPathComponent)
+                .buttonStyle(.bordered)
+                .tint(Color.frSecondaryText)
             }
 
             Button {
@@ -355,9 +406,12 @@ private struct EditorTopBar: View {
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(model.renderer.isRendering)
+            .buttonStyle(.borderedProminent)
+            .tint(Color.frAccent)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 0)
     }
 }
 
@@ -398,7 +452,7 @@ private struct EditorPreview: View {
                 endPoint: .bottom
             )
         case .image(let path):
-            if let image = NSImage(contentsOfFile: path), image.isValid {
+            if let image = EditorBackgroundImageCache.shared.image(for: path) {
                 BackgroundImageView(
                     image: image,
                     fit: session.edit.imageFit,
@@ -545,12 +599,71 @@ private struct EditorPreview: View {
     }
 }
 
-/// Renders an `NSImage` constrained to the offered size with explicit fit + focal-point control.
+/// Renders a cached editor background image constrained to the offered size with explicit fit + focal-point control.
 /// Wraps the image in its own clipped GeometryReader so the image can never push its parent
 /// container's frame larger than what was offered (which previously caused the background image
 /// to overflow into the timeline / inspector).
-struct BackgroundImageView: View {
-    let image: NSImage
+private struct EditorBackgroundImage {
+    let cgImage: CGImage
+
+    var size: CGSize {
+        CGSize(width: cgImage.width, height: cgImage.height)
+    }
+}
+
+private final class EditorBackgroundImageCache {
+    static let shared = EditorBackgroundImageCache()
+
+    private struct Entry {
+        let image: EditorBackgroundImage
+        let modificationDate: Date?
+    }
+
+    private let maxPixelSize = 2560
+    private var entries: [String: Entry] = [:]
+
+    func image(for path: String) -> EditorBackgroundImage? {
+        guard !path.isEmpty else { return nil }
+        let modificationDate = Self.modificationDate(for: path)
+        if let cached = entries[path], cached.modificationDate == modificationDate {
+            return cached.image
+        }
+
+        let url = URL(fileURLWithPath: path)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            entries.removeValue(forKey: path)
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            entries.removeValue(forKey: path)
+            return nil
+        }
+
+        if entries.count > 8 {
+            entries.removeAll(keepingCapacity: true)
+        }
+
+        let image = EditorBackgroundImage(cgImage: cgImage)
+        entries[path] = Entry(image: image, modificationDate: modificationDate)
+        return image
+    }
+
+    private static func modificationDate(for path: String) -> Date? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return attributes?[.modificationDate] as? Date
+    }
+}
+
+private struct BackgroundImageView: View {
+    let image: EditorBackgroundImage
     let fit: BackgroundImageFit
     let focusX: Double
     let focusY: Double
@@ -596,7 +709,7 @@ struct BackgroundImageView: View {
                     ? containerH / 2 + overflowY * (0.5 - fy)
                     : containerH / 2
 
-                Image(nsImage: image)
+                Image(image.cgImage, scale: 1, label: Text(""))
                     .resizable()
                     .interpolation(.high)
                     .frame(width: scaledW, height: scaledH)
@@ -794,67 +907,30 @@ private struct FullscreenControlBar: View {
     }
 }
 
-// MARK: - Timeline
+// MARK: - Video control bar
 
-private struct TimelinePanel: View {
-    @EnvironmentObject var model: AppViewModel
+private struct VideoControlBar: View {
     let session: RecordingSession
     @ObservedObject var controller: PlaybackController
     @Binding var playbackTime: Double
-    @Binding var selectedZoomID: UUID?
     @Binding var isPreviewFullscreen: Bool
     let onToggleFullscreen: () -> Void
-    @State private var filmstripSelected = false
-    @State private var timelineZoomScale: Double = 1.0
+    @State private var audioVolume: Double = 1.0
 
     var body: some View {
-        VStack(spacing: 10) {
-            playbackBar
-            timelineActionBar
-            GeometryReader { proxy in
-                let timelineWidth = max(800, proxy.size.width) * timelineZoomScale
-                ScrollViewReader { _ in
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        timelineTracks(width: timelineWidth)
-                            .frame(width: timelineWidth)
-                    }
-                }
-            }
-            .frame(height: 152)
+        HStack(spacing: 16) {
+            timeReadout
+            Spacer(minLength: 8)
+            transportCluster
+            Spacer(minLength: 8)
+            rightControls
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-    }
-
-    private var playbackBar: some View {
-        HStack(spacing: 16) {
-            timeReadout
-
-            Spacer(minLength: 12)
-
-            transportCluster
-
-            Spacer(minLength: 12)
-
-            Button(action: onToggleFullscreen) {
-                Image(systemName: isPreviewFullscreen
-                      ? "arrow.down.right.and.arrow.up.left"
-                      : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(isPreviewFullscreen ? "Exit fullscreen (F / Esc)" : "Play preview fullscreen (F)")
-        }
         .onChange(of: controller.currentTime) { _, newTime in
-            if abs(newTime - playbackTime) > 0.005 {
-                playbackTime = newTime
-            }
+            if abs(newTime - playbackTime) > 0.005 { playbackTime = newTime }
         }
-        .onChange(of: playbackTime) { oldValue, newValue in
-            // Only seek on user-driven changes (not the periodic observer above).
+        .onChange(of: playbackTime) { _, newValue in
             if !controller.isPlaying, abs(newValue - controller.currentTime) > 0.05 {
                 controller.seek(to: newValue)
             }
@@ -864,38 +940,33 @@ private struct TimelinePanel: View {
     private var timeReadout: some View {
         HStack(spacing: 6) {
             Text(timecode(max(0, playbackTime - session.timelineContentStart)))
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .monospacedDigit()
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.frPrimaryText)
             Text("/")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.frBorder)
             Text(timecode(session.timelineVisibleDuration))
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 13))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.frSecondaryText)
         }
         .fixedSize()
     }
 
     private var transportCluster: some View {
-        HStack(spacing: 2) {
-            transportIconButton(systemImage: "backward.end.fill", help: "Jump to clip start") {
+        HStack(spacing: 6) {
+            transportBtn("backward.end.fill", help: "Jump to start") {
                 controller.seek(to: session.timelineContentStart)
                 playbackTime = controller.currentTime
             }
-            transportIconButton(systemImage: "backward.frame.fill", help: "Frame back (←)") {
-                controller.pause()
-                controller.step(by: -1)
+            transportBtn("backward.frame.fill", help: "Frame back (←)") {
+                controller.pause(); controller.step(by: -1)
                 playbackTime = controller.currentTime
             }
-
-            Button {
-                controller.togglePlay()
-            } label: {
+            Button { controller.togglePlay() } label: {
                 ZStack {
-                    Circle()
-                        .fill(Color.white)
+                    Circle().fill(Color.white)
                     Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.black)
@@ -906,13 +977,11 @@ private struct TimelinePanel: View {
             .buttonStyle(.plain)
             .help("Play/Pause (Space)")
             .padding(.horizontal, 6)
-
-            transportIconButton(systemImage: "forward.frame.fill", help: "Frame forward (→)") {
-                controller.pause()
-                controller.step(by: 1)
+            transportBtn("forward.frame.fill", help: "Frame forward (→)") {
+                controller.pause(); controller.step(by: 1)
                 playbackTime = controller.currentTime
             }
-            transportIconButton(systemImage: "forward.end.fill", help: "Jump to clip end") {
+            transportBtn("forward.end.fill", help: "Jump to end") {
                 controller.seek(to: max(session.timelineContentStart, session.timelineContentEnd - 0.02))
                 playbackTime = controller.currentTime
             }
@@ -920,60 +989,131 @@ private struct TimelinePanel: View {
         .fixedSize()
     }
 
-    private func transportIconButton(systemImage: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
+    private var rightControls: some View {
+        HStack(spacing: 10) {
+            Image(systemName: audioVolume < 0.01 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
+                .foregroundStyle(Color.frSecondaryText)
+
+            Slider(value: $audioVolume, in: 0...1)
+                .controlSize(.small)
+                .tint(Color.frAccent)
+                .frame(width: 80)
+                .onChange(of: audioVolume) { _, v in
+                    controller.player.volume = Float(v)
+                }
+
+            Button(action: onToggleFullscreen) {
+                Image(systemName: isPreviewFullscreen
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.frSecondaryText)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isPreviewFullscreen ? "Exit fullscreen (F / Esc)" : "Fullscreen (F)")
+        }
+    }
+
+    private func transportBtn(_ image: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: image)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.frSecondaryText)
+                .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
     }
+}
+
+// MARK: - Timeline
+
+private struct TimelinePanel: View {
+    @EnvironmentObject var model: AppViewModel
+    let session: RecordingSession
+    @ObservedObject var controller: PlaybackController
+    @Binding var playbackTime: Double
+    @Binding var selectedZoomID: UUID?
+    @State private var filmstripSelected = false
+    @State private var timelineZoomScale: Double = 1.0
+    @State private var timelineViewportWidth: Double = 800
+    @State private var snapToPlayhead = true
+
+    var body: some View {
+        VStack(spacing: 10) {
+            timelineActionBar
+            GeometryReader { proxy in
+                let viewportWidth = max(1, proxy.size.width)
+                let timelineWidth = baseTimelineWidth(for: viewportWidth) * timelineZoomScale
+                ScrollViewReader { _ in
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        timelineTracks(width: timelineWidth)
+                            .frame(width: timelineWidth)
+                    }
+                }
+                .onAppear {
+                    timelineViewportWidth = viewportWidth
+                }
+                .onChange(of: viewportWidth) { _, newValue in
+                    timelineViewportWidth = newValue
+                }
+            }
+            .frame(height: 112)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
 
     private var timelineActionBar: some View {
-        HStack(spacing: 4) {
-            timelineIconButton(
-                systemImage: "plus",
-                help: "Add zoom at playhead (Z)",
-                disabled: false,
-                action: { model.addZoomAtPlayhead() }
-            )
-            timelineIconButton(
+        HStack(spacing: 2) {
+            let canRegenerate = model.canRegenerateAutomaticZooms(in: session)
+            timelineLabelButton(systemImage: "plus", title: "Add Zoom", help: "Add zoom at playhead (Z)", disabled: false) {
+                model.addZoomAtPlayhead()
+            }
+            timelineLabelButton(
                 systemImage: "sparkles",
-                help: "Regenerate automatic zooms",
-                disabled: false,
-                action: { model.regenerateAutomaticZooms() }
-            )
-            timelineIconButton(
-                systemImage: "plus.square.on.square",
-                help: "Duplicate selected zoom",
-                disabled: !model.hasSelectedZooms,
-                action: { model.duplicateSelectedZoom() }
-            )
-            timelineIconButton(
-                systemImage: "scissors",
-                help: "Cut selected zooms",
-                disabled: !model.hasSelectedZooms,
-                action: { model.cutSelectedZooms() }
-            )
-            timelineIconButton(
-                systemImage: "trash",
-                help: "Delete selected zooms",
-                disabled: !model.hasSelectedZooms,
-                role: .destructive,
-                action: { model.deleteSelectedZooms() }
-            )
+                title: "Auto",
+                help: canRegenerate ? "Regenerate automatic zooms" : "No click or cursor-dwell signals in the visible timeline",
+                disabled: !canRegenerate
+            ) {
+                model.regenerateAutomaticZooms()
+            }
+            timelineLabelButton(systemImage: "plus.square.on.square", title: "Duplicate", help: "Duplicate selected zoom", disabled: !model.hasSelectedZooms) {
+                model.duplicateSelectedZoom()
+            }
+            timelineLabelButton(systemImage: "scissors", title: "Cut", help: "Cut selected zooms", disabled: !model.hasSelectedZooms) {
+                model.cutSelectedZooms()
+            }
+            timelineLabelButton(systemImage: "trash", title: "Delete", help: "Delete selected zooms", disabled: !model.hasSelectedZooms, role: .destructive) {
+                model.deleteSelectedZooms()
+            }
 
-            Divider().frame(height: 16).padding(.horizontal, 4)
+            Rectangle()
+                .fill(Color.frBorder)
+                .frame(width: 1, height: 16)
+                .padding(.horizontal, 6)
 
-            timelineIconButton(
+            timelineLabelButton(
                 systemImage: "square.split.2x1",
-                help: "Split zoom at playhead, or trim clip after playhead (S)",
+                title: "Split",
+                help: filmstripSelected ? "Split selected clip at playhead" : "Split zoom at playhead (S)",
+                disabled: false
+            ) {
+                splitTimelineSelection()
+            }
+            timelineLabelButton(
+                systemImage: "arrow.left.and.right",
+                title: "Snap",
+                help: snapToPlayhead ? "Disable snapping to playhead" : "Enable snapping to playhead",
                 disabled: false,
-                action: { model.splitZoomAtPlayhead() }
-            )
+                active: snapToPlayhead
+            ) {
+                snapToPlayhead.toggle()
+            }
 
             Spacer()
 
@@ -981,26 +1121,37 @@ private struct TimelinePanel: View {
         }
     }
 
-    private func timelineIconButton(
+    private func timelineLabelButton(
         systemImage: String,
+        title: String,
         help: String,
         disabled: Bool,
+        active: Bool = false,
         role: ButtonRole? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(role: role, action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(disabled ? AnyShapeStyle(.tertiary) :
-                                role == .destructive ? AnyShapeStyle(Color.red.opacity(0.85)) :
-                                AnyShapeStyle(.secondary))
-                .frame(width: 26, height: 24)
+                .foregroundStyle(
+                    disabled ? AnyShapeStyle(Color.frBorder) :
+                    role == .destructive ? AnyShapeStyle(Color.red.opacity(0.8)) :
+                    active ? AnyShapeStyle(Color.frAccent) :
+                    AnyShapeStyle(Color.frSecondaryText)
+                )
+                .frame(width: 32, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(active ? Color.frAccent.opacity(0.14) : Color.clear)
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
         .help(help)
-        .accessibilityLabel(help)
+        .accessibilityLabel(title)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
     }
 
     private var timelineZoomControls: some View {
@@ -1026,6 +1177,19 @@ private struct TimelinePanel: View {
                 .controlSize(.mini)
                 .frame(width: 110)
                 .help("Timeline horizontal zoom")
+
+            Button {
+                fitTimelineToViewport()
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(timelineIsFitToViewport ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(timelineIsFitToViewport)
+            .help("Fit timeline to visible area")
 
             Button {
                 timelineZoomScale = 1
@@ -1060,16 +1224,53 @@ private struct TimelinePanel: View {
         }
     }
 
+    private func baseTimelineWidth(for viewportWidth: Double) -> Double {
+        max(800, viewportWidth)
+    }
+
+    private var timelineFitScale: Double {
+        let viewportWidth = max(1, timelineViewportWidth)
+        let scale = viewportWidth / baseTimelineWidth(for: viewportWidth)
+        return min(4, max(0.5, scale)).rounded(toPlaces: 2)
+    }
+
+    private var timelineIsFitToViewport: Bool {
+        abs(timelineZoomScale - timelineFitScale) < 0.001
+    }
+
+    private func fitTimelineToViewport() {
+        timelineZoomScale = timelineFitScale
+    }
+
+    private func splitTimelineSelection() {
+        if filmstripSelected {
+            model.splitClipAtPlayhead()
+        } else {
+            model.splitZoomAtPlayhead()
+        }
+    }
+
     private func timelineTracks(width: Double) -> some View {
         VStack(spacing: 6) {
-            let duration = max(1, session.approximateDuration)
+            let timeline = TimelineCoordinateMap(
+                sourceStart: session.timelineContentStart,
+                sourceEnd: session.timelineContentEnd,
+                width: width
+            )
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 5) {
+                    ClickTrack(
+                        clicks: session.clicks,
+                        keystrokes: session.keystrokes,
+                        timeline: timeline,
+                        height: 14
+                    )
+                        .contentShape(Rectangle())
+                        .gesture(scrubGesture(timeline: timeline))
                     FilmstripTimelineTrack(
                         session: session,
-                        duration: duration,
-                        width: width,
-                        height: 68,
+                        timeline: timeline,
+                        height: 38,
                         filmstripSelected: $filmstripSelected,
                         onScrubBegan: {},
                         scrubTo: { t in
@@ -1083,13 +1284,11 @@ private struct TimelinePanel: View {
                             model.selectOnlyZoom(nil)
                         }
                     )
-                    ClickTrack(clicks: session.clicks, keystrokes: session.keystrokes, duration: duration, width: width, height: 16)
-                        .contentShape(Rectangle())
-                        .gesture(scrubGesture(width: width, duration: duration))
                     ZoomTrack(
                         zooms: session.zooms,
-                        duration: duration,
-                        width: width,
+                        timeline: timeline,
+                        playheadTime: playbackTime,
+                        snapToPlayhead: snapToPlayhead,
                         height: 38,
                         selectedZoomID: $selectedZoomID,
                         selectedZoomIDs: $model.selectedZoomIDs,
@@ -1105,25 +1304,21 @@ private struct TimelinePanel: View {
                 Rectangle()
                     .fill(Color.accentColor)
                     .frame(width: 2)
-                    .offset(x: playheadX(width: width, duration: duration))
+                    .offset(x: timeline.timeToX(playbackTime))
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: width, height: 152)
+        .frame(width: width, height: 112)
     }
 
-    private func scrubGesture(width: Double, duration: Double) -> some Gesture {
+    private func scrubGesture(timeline: TimelineCoordinateMap) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                let t = min(max(0, value.location.x / width * duration), duration)
+                let t = timeline.xToTime(Double(value.location.x))
                 playbackTime = t
                 controller.pause()
                 controller.seek(to: t, precise: false)
             }
-    }
-
-    private func playheadX(width: Double, duration: Double) -> Double {
-        min(max(0, playbackTime / duration * width), width)
     }
 }
 
@@ -1136,11 +1331,57 @@ private extension Double {
 
 // MARK: - Tracks
 
+/// Maps between absolute source-video time and the trimmed timeline's visible x-axis.
+///
+/// RecordingSession zoom/cursor/click times are stored in absolute source time. UI labels can
+/// display output-relative time by subtracting `sourceStart`, but drawing and dragging stay in
+/// source time so preview/export continue to read the same model data.
+private struct TimelineCoordinateMap {
+    let sourceStart: Double
+    let sourceEnd: Double
+    let width: Double
+
+    var visibleDuration: Double {
+        max(0.001, sourceEnd - sourceStart)
+    }
+
+    func timeToX(_ sourceTime: Double) -> Double {
+        let fraction = (sourceTime - sourceStart) / visibleDuration
+        return min(max(0, fraction * width), width)
+    }
+
+    func xToTime(_ x: Double) -> Double {
+        let fraction = min(max(0, x / max(1, width)), 1)
+        return sourceStart + fraction * visibleDuration
+    }
+
+    func deltaXToTime(_ deltaX: Double) -> Double {
+        deltaX / max(1, width) * visibleDuration
+    }
+
+    func outputTime(forSourceTime sourceTime: Double) -> Double {
+        max(0, sourceTime - sourceStart)
+    }
+
+    func intersects(sourceStart start: Double, sourceEnd end: Double) -> Bool {
+        start < sourceEnd && end > sourceStart
+    }
+
+    func xRange(sourceStart start: Double, sourceEnd end: Double, minimumWidth: Double = 0) -> (x: Double, width: Double) {
+        let clampedStart = min(max(start, sourceStart), sourceEnd)
+        let clampedEnd = min(max(end, sourceStart), sourceEnd)
+        let rawX = timeToX(clampedStart)
+        let rawWidth = max(0, timeToX(clampedEnd) - rawX)
+        let displayWidth = min(width, max(minimumWidth, rawWidth))
+        let displayX = min(max(0, rawX), max(0, width - displayWidth))
+        return (displayX, displayWidth)
+    }
+}
+
 private struct FilmstripTimelineTrack: View {
     @EnvironmentObject var model: AppViewModel
     let session: RecordingSession
-    let duration: Double
-    let width: Double
+    let timeline: TimelineCoordinateMap
     let height: Double
     @Binding var filmstripSelected: Bool
     let onScrubBegan: () -> Void
@@ -1163,27 +1404,24 @@ private struct FilmstripTimelineTrack: View {
     }
 
     var body: some View {
-        let x0 = session.timelineContentStart / max(0.0001, duration) * width
-        let x1 = session.timelineContentEnd / max(0.0001, duration) * width
         ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
-                ThumbnailStrip(url: session.rawVideoURL, duration: duration, width: width, height: height)
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(Color.black.opacity(0.52))
-                        .frame(width: max(0, x0))
-                    Spacer(minLength: 0)
-                }
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    Rectangle()
-                        .fill(Color.black.opacity(0.52))
-                        .frame(width: max(0, width - x1))
-                }
+                ThumbnailStrip(
+                    url: session.rawVideoURL,
+                    startTime: timeline.sourceStart,
+                    endTime: timeline.sourceEnd,
+                    width: timeline.width,
+                    height: height
+                )
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    WaveformFilmstripOverlay(url: session.rawVideoURL, duration: duration, width: width)
-                        .frame(height: max(22, height * 0.36))
+                    WaveformFilmstripOverlay(
+                        url: session.rawVideoURL,
+                        startTime: timeline.sourceStart,
+                        endTime: timeline.sourceEnd,
+                        width: timeline.width
+                    )
+                        .frame(height: max(12, height * 0.34))
                         .allowsHitTesting(false)
                 }
             }
@@ -1191,14 +1429,21 @@ private struct FilmstripTimelineTrack: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
-                        filmstripSelected ? Color.white.opacity(0.32) : Color.white.opacity(0.14),
+                        filmstripSelected ? Color.accentColor.opacity(0.95) : Color.white.opacity(0.14),
                         lineWidth: filmstripSelected ? 1.5 : 1
                     )
             )
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(filmstripSelected ? 0.12 : 0))
+            )
             .contentShape(Rectangle())
-            .simultaneousGesture(
+            .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coord))
                     .onChanged { value in
+                        if !filmstripSelected {
+                            onSelectFilmstrip()
+                        }
                         let flags = NSApp.currentEvent?.modifierFlags ?? []
                         if flags.contains(.option) {
                             if slipAnchor == nil {
@@ -1207,7 +1452,7 @@ private struct FilmstripTimelineTrack: View {
                                 model.beginUndoTransaction()
                             }
                             if let slipAnchor {
-                                let slip = Double(value.translation.width) / max(1, width) * duration
+                                let slip = timeline.deltaXToTime(Double(value.translation.width))
                                 model.updateTimelineTrims(
                                     trimStart: slipAnchor.trimStart + slip,
                                     trimEnd: slipAnchor.trimEnd - slip,
@@ -1217,7 +1462,7 @@ private struct FilmstripTimelineTrack: View {
                             return
                         }
                         onScrubBegan()
-                        let t = min(max(0, value.location.x / max(1, width) * duration), duration)
+                        let t = timeline.xToTime(Double(value.location.x))
                         scrubTo(t)
                     }
                     .onEnded { _ in
@@ -1233,24 +1478,27 @@ private struct FilmstripTimelineTrack: View {
                 onSelectFilmstrip()
             }
 
-            TrimEdgeHandleView()
-                .frame(width: 14, height: height)
-                .offset(x: max(0, x0 - 7))
+            TrimEdgeHandleView(alignment: .leading)
+                .frame(width: 32, height: height)
+                .offset(x: 0)
                 .highPriorityGesture(trimHandleGesture(kind: .leading))
-            TrimEdgeHandleView()
-                .frame(width: 14, height: height)
-                .offset(x: min(width - 14, x1 - 7))
+            TrimEdgeHandleView(alignment: .trailing)
+                .frame(width: 32, height: height)
+                .offset(x: max(0, timeline.width - 32))
                 .highPriorityGesture(trimHandleGesture(kind: .trailing))
         }
-        .frame(width: width, height: height)
+        .frame(width: timeline.width, height: height)
         .coordinateSpace(name: Self.coord)
-        .help("Drag filmstrip to scrub. Drag trim handles to shorten. ⌥ drag inside the clip to slip the edit window.")
+        .help("Click to select. Drag trim handles to change clip length. Drag inside to scrub. ⌥ drag inside the clip to slip the edit window.")
     }
 
     private func trimHandleGesture(kind: TrimDragState.Kind) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.coord))
             .onChanged { value in
                 if trimDrag == nil {
+                    if !filmstripSelected {
+                        onSelectFilmstrip()
+                    }
                     trimDrag = TrimDragState(
                         kind: kind,
                         anchorTrimStart: session.timelineTrimStart,
@@ -1260,7 +1508,7 @@ private struct FilmstripTimelineTrack: View {
                     model.beginUndoTransaction()
                 }
                 guard let drag = trimDrag else { return }
-                let deltaT = Double(value.location.x - drag.startX) / max(1, width) * duration
+                let deltaT = timeline.deltaXToTime(Double(value.location.x - drag.startX))
                 switch drag.kind {
                 case .leading:
                     model.updateTimelineTrims(trimStart: drag.anchorTrimStart + deltaT, trimEnd: nil, recordUndo: false)
@@ -1276,14 +1524,16 @@ private struct FilmstripTimelineTrack: View {
 }
 
 private struct TrimEdgeHandleView: View {
+    let alignment: Alignment
+
     var body: some View {
-        ZStack {
+        ZStack(alignment: alignment) {
+            Rectangle()
+                .fill(Color.white.opacity(0.001))
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(Color.white.opacity(0.22))
-                .frame(width: 6, height: min(48, 42))
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.38), lineWidth: 1)
-                .frame(width: 6, height: min(48, 42))
+                .fill(Color.white)
+                .frame(width: 6, height: 24)
+                .padding(.horizontal, 5)
         }
         .contentShape(Rectangle())
     }
@@ -1291,7 +1541,8 @@ private struct TrimEdgeHandleView: View {
 
 private struct WaveformFilmstripOverlay: View {
     let url: URL
-    let duration: Double
+    let startTime: Double
+    let endTime: Double
     let width: CGFloat
     @State private var levels: [CGFloat] = []
 
@@ -1339,9 +1590,9 @@ private struct WaveformFilmstripOverlay: View {
                 endPoint: .bottom
             )
         )
-        .task(id: "\(url.path)-\(Int(duration))-\(Int(width))") {
+        .task(id: "\(url.path)-\(Int(startTime * 1000))-\(Int(endTime * 1000))-\(Int(width))") {
             let count = max(40, min(220, Int(width / 10)))
-            let loaded = await WaveformBucketLoader.load(url: url, duration: duration, bucketCount: count)
+            let loaded = await WaveformBucketLoader.load(url: url, startTime: startTime, endTime: endTime, bucketCount: count)
             if !Task.isCancelled {
                 levels = loaded
             }
@@ -1364,7 +1615,8 @@ private struct WaveformFilmstripOverlay: View {
 }
 
 private enum WaveformBucketLoader {
-    static func load(url: URL, duration: Double, bucketCount: Int) async -> [CGFloat] {
+    static func load(url: URL, startTime: Double, endTime: Double, bucketCount: Int) async -> [CGFloat] {
+        let duration = max(0, endTime - startTime)
         guard duration > 0.04, bucketCount > 1 else { return [] }
         return await Task.detached(priority: .utility) { () async -> [CGFloat] in
             let asset = AVURLAsset(url: url)
@@ -1380,6 +1632,10 @@ private enum WaveformBucketLoader {
             let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
             guard reader.canAdd(output) else { return [] }
             reader.add(output)
+            reader.timeRange = CMTimeRange(
+                start: CMTime(seconds: max(0, startTime), preferredTimescale: 600),
+                duration: CMTime(seconds: duration, preferredTimescale: 600)
+            )
             guard reader.startReading() else { return [] }
 
             var sums = [Double](repeating: 0, count: bucketCount)
@@ -1435,7 +1691,8 @@ private enum WaveformBucketLoader {
 
 private struct ThumbnailStrip: View {
     let url: URL
-    let duration: Double
+    let startTime: Double
+    let endTime: Double
     let width: Double
     let height: Double
     @State private var thumbnails: [CGImage] = []
@@ -1467,17 +1724,18 @@ private struct ThumbnailStrip: View {
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .task(id: "\(url.path)-\(Int(duration))-\(Int(width))") {
+        .task(id: "\(url.path)-\(Int(startTime * 1000))-\(Int(endTime * 1000))-\(Int(width))") {
             await loadThumbnails()
         }
     }
 
     private func loadThumbnails() async {
-        let key = "\(url.path)-\(Int(duration))-\(Int(width))"
+        let key = "\(url.path)-\(Int(startTime * 1000))-\(Int(endTime * 1000))-\(Int(width))"
         loadKey = key
+        let duration = max(0.001, endTime - startTime)
         let count = max(8, min(40, Int(width / 90)))
         let times: [CMTime] = (0..<count).map { i in
-            CMTime(seconds: duration * Double(i) / Double(max(1, count - 1)),
+            CMTime(seconds: startTime + duration * Double(i) / Double(max(1, count - 1)),
                    preferredTimescale: 600)
         }
         let images = await Task.detached(priority: .utility) { () -> [CGImage] in
@@ -1504,36 +1762,36 @@ private struct ThumbnailStrip: View {
 private struct ClickTrack: View {
     let clicks: [MouseClickEvent]
     let keystrokes: [KeystrokeEvent]
-    let duration: Double
-    let width: Double
+    let timeline: TimelineCoordinateMap
     let height: Double
 
     var body: some View {
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(nsColor: .controlBackgroundColor))
-            ForEach(keystrokes) { k in
+                .fill(Color.frPanel)
+            ForEach(keystrokes.filter { $0.time >= timeline.sourceStart && $0.time <= timeline.sourceEnd }) { k in
                 Rectangle()
                     .fill(Color.green.opacity(0.45))
                     .frame(width: 1.5, height: height - 6)
-                    .offset(x: k.time / max(0.0001, duration) * width)
+                    .offset(x: timeline.timeToX(k.time))
             }
-            ForEach(clicks) { c in
+            ForEach(clicks.filter { $0.time >= timeline.sourceStart && $0.time <= timeline.sourceEnd }) { c in
                 Circle()
                     .fill(c.isRightClick ? Color.orange : Color.red)
                     .frame(width: 7, height: 7)
-                    .offset(x: c.time / max(0.0001, duration) * width - 3.5,
+                    .offset(x: timeline.timeToX(c.time) - 3.5,
                             y: height / 2 - 3.5)
             }
         }
-        .frame(width: width, height: height)
+        .frame(width: timeline.width, height: height)
     }
 }
 
 private struct ZoomTrack: View {
     let zooms: [ZoomKeyframe]
-    let duration: Double
-    let width: Double
+    let timeline: TimelineCoordinateMap
+    let playheadTime: Double
+    let snapToPlayhead: Bool
     let height: Double
     @Binding var selectedZoomID: UUID?
     @Binding var selectedZoomIDs: Set<UUID>
@@ -1546,17 +1804,12 @@ private struct ZoomTrack: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
-                )
-            ForEach(zooms) { zoom in
+            ForEach(zooms.filter { timeline.intersects(sourceStart: $0.start, sourceEnd: $0.start + $0.duration) }) { zoom in
                 ZoomBlock(
                     zoom: zoom,
-                    duration: duration,
-                    totalWidth: width,
+                    timeline: timeline,
+                    playheadTime: playheadTime,
+                    snapToPlayhead: snapToPlayhead,
                     height: height,
                     selected: selectedZoomIDs.contains(zoom.id) || selectedZoomID == zoom.id,
                     coordinateSpaceName: Self.coordinateName,
@@ -1567,15 +1820,17 @@ private struct ZoomTrack: View {
                 )
             }
         }
-        .frame(width: width, height: height)
+        .frame(width: timeline.width, height: height, alignment: .topLeading)
+        .clipped()
         .coordinateSpace(name: Self.coordinateName)
     }
 }
 
 private struct ZoomBlock: View {
     let zoom: ZoomKeyframe
-    let duration: Double
-    let totalWidth: Double
+    let timeline: TimelineCoordinateMap
+    let playheadTime: Double
+    let snapToPlayhead: Bool
     let height: Double
     let selected: Bool
     let coordinateSpaceName: String
@@ -1591,8 +1846,12 @@ private struct ZoomBlock: View {
     enum DragKind { case body, leftEdge, rightEdge, zoomInEnd, zoomOutStart }
 
     var body: some View {
-        let x = zoom.start / max(0.0001, duration) * totalWidth
-        let w = max(56, zoom.duration / max(0.0001, duration) * totalWidth)
+        let visibleStart = max(timeline.sourceStart, zoom.start)
+        let visibleEnd = min(timeline.sourceEnd, zoom.start + zoom.duration)
+        let visibleSpan = max(0.001, visibleEnd - visibleStart)
+        let range = timeline.xRange(sourceStart: zoom.start, sourceEnd: zoom.start + zoom.duration, minimumWidth: 56)
+        let x = range.x
+        let w = range.width
         let blockHeight = height - 4
         let corner: CGFloat = 5
         ZStack(alignment: .leading) {
@@ -1617,7 +1876,9 @@ private struct ZoomBlock: View {
                 var path = Path()
                 for i in 0...steps {
                     let p = Double(i) / Double(steps)
-                    let env = zoomEnvelope(progress: p, zoom: zoom)
+                    let sourceTime = visibleStart + visibleSpan * p
+                    let zoomProgress = (sourceTime - zoom.start) / max(0.001, zoom.duration)
+                    let env = zoomEnvelope(progress: zoomProgress, zoom: zoom)
                     let px = CGFloat(p) * size.width
                     let py = size.height * CGFloat(0.78 - 0.38 * env)
                     if i == 0 {
@@ -1634,38 +1895,46 @@ private struct ZoomBlock: View {
             }
             .allowsHitTesting(false)
 
-            HStack {
-                Spacer(minLength: 0)
-                Text("\(zoom.scale, specifier: "%.1f")×")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
-                    .padding(5)
-                    .opacity(w < 52 ? 0 : 1)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            Text("\(zoom.scale, specifier: "%.1f")×")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(.ultraThinMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+                .opacity(w < 52 ? 0 : 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             if selected {
                 let timings = zoomAnimationTimings(for: zoom)
-                let zoomInX = max(10, min(w - 10, timings.zoomIn / max(0.001, zoom.duration) * w))
-                let zoomOutX = max(10, min(w - 10, (zoom.duration - timings.zoomOut) / max(0.001, zoom.duration) * w))
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(Color.white.opacity(0.22))
-                    .frame(width: max(2, zoomOutX - zoomInX), height: 2)
-                    .offset(x: zoomInX, y: blockHeight - 6)
-                    .allowsHitTesting(false)
-                AnimationHandle()
-                    .offset(x: zoomInX - 7, y: (blockHeight - 22) / 2)
-                    .highPriorityGesture(dragGesture(kind: .zoomInEnd))
-                    .help("Drag to set where zoom-in animation ends")
-                AnimationHandle()
-                    .offset(x: zoomOutX - 7, y: (blockHeight - 22) / 2)
-                    .highPriorityGesture(dragGesture(kind: .zoomOutStart))
-                    .help("Drag to set where zoom-out animation starts")
+                let zoomInEndTime = zoom.start + timings.zoomIn
+                let zoomOutStartTime = zoom.start + zoom.duration - timings.zoomOut
+                let zoomInVisible = zoomInEndTime >= visibleStart && zoomInEndTime <= visibleEnd
+                let zoomOutVisible = zoomOutStartTime >= visibleStart && zoomOutStartTime <= visibleEnd
+                let zoomInX = localX(for: zoomInEndTime, visibleStart: visibleStart, visibleSpan: visibleSpan, width: w)
+                let zoomOutX = localX(for: zoomOutStartTime, visibleStart: visibleStart, visibleSpan: visibleSpan, width: w)
+                let plateauStart = localX(for: max(visibleStart, zoomInEndTime), visibleStart: visibleStart, visibleSpan: visibleSpan, width: w)
+                let plateauEnd = localX(for: min(visibleEnd, zoomOutStartTime), visibleStart: visibleStart, visibleSpan: visibleSpan, width: w)
+                if plateauEnd > plateauStart {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Color.white.opacity(0.22))
+                        .frame(width: max(2, plateauEnd - plateauStart), height: 2)
+                        .offset(x: plateauStart, y: (blockHeight - 2) / 2)
+                        .allowsHitTesting(false)
+                }
+                if zoomInVisible {
+                    AnimationHandle()
+                        .offset(x: zoomInX - 7, y: (blockHeight - 28) / 2)
+                        .highPriorityGesture(dragGesture(kind: .zoomInEnd))
+                        .help("Drag to set where zoom-in animation ends")
+                }
+                if zoomOutVisible {
+                    AnimationHandle()
+                        .offset(x: zoomOutX - 7, y: (blockHeight - 28) / 2)
+                        .highPriorityGesture(dragGesture(kind: .zoomOutStart))
+                        .help("Drag to set where zoom-out animation starts")
+                }
                 HStack(spacing: 0) {
                     Handle()
                         .highPriorityGesture(dragGesture(kind: .leftEdge))
@@ -1690,41 +1959,56 @@ private struct ZoomBlock: View {
         DragGesture(minimumDistance: 1, coordinateSpace: .named(coordinateSpaceName))
             .onChanged { value in
                 if dragKind == nil {
-                    dragKind = explicitKind ?? .body
-                    origin = zoom
+                    let kind = explicitKind ?? .body
+                    dragKind = kind
+                    origin = timelineEditableZoom(for: zoom, kind: kind)
                     dragStartX = Double(value.startLocation.x)
-                    draft = zoom
+                    draft = origin
                     select(selectionExtendsFromCurrentEvent())
                     onBegin()
                 }
                 guard let kind = dragKind, let origin else { return }
-                let deltaX = Double(value.location.x) - dragStartX
-                let dt = deltaX / max(1, totalWidth) * duration
+                let deltaX: Double
+                if kind == .body {
+                    // Body drag: the block moves 1:1 with the cursor, so use the gesture's
+                    // own translation. `value.location.x` in the named coord space can get
+                    // clipped at the timeline edges, preventing it from reaching the visible start.
+                    deltaX = Double(value.translation.width)
+                } else {
+                    deltaX = Double(value.location.x) - dragStartX
+                }
+                let dt = timeline.deltaXToTime(deltaX)
                 var updated = origin
                 switch kind {
                 case .body:
-                    updated.start = max(0, min(duration - origin.duration, origin.start + dt))
+                    let maxStart = max(timeline.sourceStart, timeline.sourceEnd - origin.duration)
+                    updated.start = min(max(timeline.sourceStart, origin.start + dt), maxStart)
+                    updated = snappedBodyZoom(updated)
                 case .leftEdge:
                     let minDuration = minimumDuration(for: origin)
-                    let newStart = max(0, min(origin.start + origin.duration - minDuration, origin.start + dt))
+                    let newStart = max(timeline.sourceStart, min(origin.start + origin.duration - minDuration, origin.start + dt))
                     let newDuration = origin.duration - (newStart - origin.start)
                     updated.start = newStart
                     updated.duration = max(minDuration, newDuration)
+                    updated = snappedLeftEdgeZoom(updated, origin: origin)
                 case .rightEdge:
                     let minDuration = minimumDuration(for: origin)
                     let newDuration = max(minDuration, origin.duration + dt)
-                    updated.duration = min(duration - origin.start, newDuration)
+                    updated.duration = min(max(minDuration, timeline.sourceEnd - origin.start), newDuration)
+                    updated = snappedRightEdgeZoom(updated)
                 case .zoomInEnd:
                     updated.zoomInDuration = min(
                         max(0.08, origin.zoomInDuration + dt),
                         max(0.08, origin.duration - origin.zoomOutDuration)
                     )
+                    updated = snappedZoomInHandle(updated)
                 case .zoomOutStart:
                     let proposedStart = origin.duration - origin.zoomOutDuration + dt
                     let minStart = origin.zoomInDuration
                     let maxStart = origin.duration - 0.08
                     let clampedStart = min(max(minStart, proposedStart), maxStart)
                     updated.zoomOutDuration = origin.duration - clampedStart
+                    updated = snappedZoomOutHandle(updated)
                 }
                 draft = updated
                 onChange(updated)
@@ -1743,8 +2027,97 @@ private struct ZoomBlock: View {
         return flags.contains(.command) || flags.contains(.shift)
     }
 
+    private func localX(for sourceTime: Double, visibleStart: Double, visibleSpan: Double, width: Double) -> Double {
+        let fraction = (sourceTime - visibleStart) / max(0.001, visibleSpan)
+        return min(max(0, fraction * width), width)
+    }
+
+    private var snapTime: Double {
+        min(max(timeline.sourceStart, playheadTime), timeline.sourceEnd)
+    }
+
+    private var snapTolerance: Double {
+        timeline.deltaXToTime(10)
+    }
+
+    private func shouldSnap(_ sourceTime: Double) -> Bool {
+        snapToPlayhead && abs(sourceTime - snapTime) <= snapTolerance
+    }
+
+    private func snappedBodyZoom(_ zoom: ZoomKeyframe) -> ZoomKeyframe {
+        var updated = zoom
+        let maxStart = max(timeline.sourceStart, timeline.sourceEnd - updated.duration)
+        if shouldSnap(updated.start) {
+            updated.start = snapTime
+        } else if shouldSnap(updated.start + updated.duration) {
+            updated.start = snapTime - updated.duration
+        }
+        updated.start = min(max(timeline.sourceStart, updated.start), maxStart)
+        return updated
+    }
+
+    private func snappedLeftEdgeZoom(_ zoom: ZoomKeyframe, origin: ZoomKeyframe) -> ZoomKeyframe {
+        guard shouldSnap(zoom.start) else { return zoom }
+        var updated = zoom
+        let minDuration = minimumDuration(for: origin)
+        let newStart = min(max(timeline.sourceStart, snapTime), origin.start + origin.duration - minDuration)
+        updated.start = newStart
+        updated.duration = max(minDuration, origin.start + origin.duration - newStart)
+        return updated
+    }
+
+    private func snappedRightEdgeZoom(_ zoom: ZoomKeyframe) -> ZoomKeyframe {
+        guard shouldSnap(zoom.start + zoom.duration) else { return zoom }
+        var updated = zoom
+        let minDuration = minimumDuration(for: zoom)
+        updated.duration = min(max(minDuration, snapTime - zoom.start), max(minDuration, timeline.sourceEnd - zoom.start))
+        return updated
+    }
+
+    private func snappedZoomInHandle(_ zoom: ZoomKeyframe) -> ZoomKeyframe {
+        let handleTime = zoom.start + zoom.zoomInDuration
+        guard shouldSnap(handleTime) else { return zoom }
+        var updated = zoom
+        updated.zoomInDuration = min(
+            max(0.08, snapTime - zoom.start),
+            max(0.08, zoom.duration - zoom.zoomOutDuration)
+        )
+        return updated
+    }
+
+    private func snappedZoomOutHandle(_ zoom: ZoomKeyframe) -> ZoomKeyframe {
+        let handleTime = zoom.start + zoom.duration - zoom.zoomOutDuration
+        guard shouldSnap(handleTime) else { return zoom }
+        var updated = zoom
+        let handleOffset = min(max(zoom.zoomInDuration, snapTime - zoom.start), zoom.duration - 0.08)
+        updated.zoomOutDuration = zoom.duration - handleOffset
+        return updated
+    }
+
     private func minimumDuration(for zoom: ZoomKeyframe) -> Double {
         max(0.5, zoom.zoomInDuration + zoom.zoomOutDuration)
+    }
+
+    private func timelineEditableZoom(for zoom: ZoomKeyframe, kind: DragKind) -> ZoomKeyframe {
+        switch kind {
+        case .body, .leftEdge, .rightEdge:
+            let visibleStart = max(timeline.sourceStart, zoom.start)
+            let visibleEnd = min(timeline.sourceEnd, zoom.start + zoom.duration)
+            guard visibleEnd > visibleStart else { return zoom }
+            var editable = zoom
+            editable.start = visibleStart
+            editable.duration = visibleEnd - visibleStart
+            editable.zoomInDuration = min(editable.zoomInDuration, editable.duration)
+            editable.zoomOutDuration = min(editable.zoomOutDuration, editable.duration)
+            if editable.zoomInDuration + editable.zoomOutDuration > editable.duration {
+                let factor = editable.duration / max(0.001, editable.zoomInDuration + editable.zoomOutDuration)
+                editable.zoomInDuration *= factor
+                editable.zoomOutDuration *= factor
+            }
+            return editable
+        case .zoomInEnd, .zoomOutStart:
+            return zoom
+        }
     }
 
     private struct Handle: View {
@@ -1789,20 +2162,30 @@ private struct Inspector: View {
                     Button {
                         tab = tabValue
                     } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: tabValue.icon)
-                            Text(tabValue.title).font(.caption)
+                        VStack(spacing: 0) {
+                            HStack(spacing: 5) {
+                                Image(systemName: tabValue.icon)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(tab == tabValue ? Color.frAccent : Color.frSecondaryText)
+                                Text(tabValue.title)
+                                    .font(.system(size: 12, weight: tab == tabValue ? .semibold : .regular))
+                                    .foregroundStyle(tab == tabValue ? Color.frAccent : Color.frSecondaryText)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .contentShape(Rectangle())
+                            Rectangle()
+                                .fill(tab == tabValue ? Color.frAccent : Color.clear)
+                                .frame(height: 2)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(tab == tabValue ? Color.accentColor.opacity(0.18) : Color.clear)
-                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .background(.thinMaterial)
-            Divider()
+            .background(Color.frPanel)
+            Rectangle()
+                .fill(Color.frBorder)
+                .frame(height: 1)
             ScrollView {
                 Group {
                     switch tab {
@@ -1816,7 +2199,7 @@ private struct Inspector: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .background(.background)
+        .background(Color.frPanel)
     }
 }
 
@@ -1835,9 +2218,24 @@ private struct ZoomInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Zooms").font(.headline)
+                Text("Zooms")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.frPrimaryText)
                 Spacer()
-                Text("\(session.zooms.count)").foregroundStyle(.secondary)
+                Button {
+                    model.addZoomAtPlayhead()
+                } label: {
+                    Label("Add Zoom", systemImage: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.frAccent)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(Color.frAccent.opacity(0.75), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
             }
 
             if session.zooms.isEmpty {
@@ -1861,6 +2259,7 @@ private struct ZoomInspector: View {
                 } else if let zoom = selected {
                     ZoomCard(
                         zoom: zoom,
+                        timelineStart: session.timelineContentStart,
                         width: Double(session.width),
                         height: Double(session.height),
                         selected: zoom.id == model.selectedZoomID,
@@ -1889,6 +2288,7 @@ private struct ZoomInspector: View {
 
 private struct ZoomCard: View {
     let zoom: ZoomKeyframe
+    let timelineStart: Double
     let width: Double
     let height: Double
     let selected: Bool
@@ -1902,20 +2302,25 @@ private struct ZoomCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: selected ? "circle.fill" : "circle")
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-                Text("Zoom @ \(zoom.start, specifier: "%.2f")s").font(.headline)
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(selected ? Color.frAccent : Color.frBorder)
+                    .frame(width: 10, height: 10)
+                Text("Zoom @ \(max(0, zoom.start - timelineStart), specifier: "%.2f")s")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.frPrimaryText)
                 Spacer()
-                Text(timecode(zoom.start))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                Text(timecode(max(0, zoom.start - timelineStart)))
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(Color.frSecondaryText)
                 Button(role: .destructive) {
                     onDelete(zoom)
                 } label: {
                     Image(systemName: "trash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.frSecondaryText)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
             }
             .contentShape(Rectangle())
             .onTapGesture { onSelect() }
@@ -1966,7 +2371,7 @@ private struct ZoomCard: View {
                 }
                 .pickerStyle(.segmented)
 
-                SliderRow(label: "Smoothness", value: zoom.followCursorSmoothing, range: 0...2, suffix: "", defaultValue: 0.72) {
+                SliderRow(label: "Smoothness", value: zoom.followCursorSmoothing, range: 0...2, suffix: "", defaultValue: ZoomKeyframe.defaultFollowCursorSmoothing) {
                     var u = zoom
                     u.followCursorSmoothing = $0
                     onChange(u)
@@ -1979,7 +2384,7 @@ private struct ZoomCard: View {
                     u.followCursorSmoothing = $0
                     onCommit(u)
                 }
-                SliderRow(label: "Cursor delay", value: zoom.followCursorDelay, range: 0...0.8, suffix: "s", defaultValue: 0.10) {
+                SliderRow(label: "Cursor delay", value: zoom.followCursorDelay, range: 0...0.8, suffix: "s", defaultValue: ZoomKeyframe.defaultFollowCursorDelay) {
                     var u = zoom
                     u.followCursorDelay = $0
                     onChange(u)
@@ -2019,7 +2424,9 @@ private struct ZoomCard: View {
 
             HStack {
                 Text("Easing")
-                    .frame(width: 78, alignment: .leading)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.frSecondaryText)
+                    .frame(width: 56, alignment: .leading)
                 Picker("", selection: Binding(get: { zoom.easing }, set: { newValue in
                     var u = zoom
                     u.easing = newValue
@@ -2095,11 +2502,13 @@ private struct ZoomCard: View {
             }
         }
         .padding(12)
-        .background(selected ? Color.accentColor.opacity(0.08) : Color.clear)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? Color.frAccent.opacity(0.08) : Color.frBackground)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(selected ? Color.frAccent : Color.frBorder, lineWidth: selected ? 1.5 : 1)
         )
     }
 
@@ -2184,7 +2593,7 @@ private struct MultiZoomCard: View {
                 }
                 .pickerStyle(.segmented)
 
-                SliderRow(label: "Smoothness", value: averageFollowSmoothing, range: 0...2, suffix: "", defaultValue: 0.72) { value in
+                SliderRow(label: "Smoothness", value: averageFollowSmoothing, range: 0...2, suffix: "", defaultValue: ZoomKeyframe.defaultFollowCursorSmoothing) { value in
                     onChange { $0.followCursorSmoothing = value }
                 } onCommit: { value in
                     onCommit { $0.followCursorSmoothing = value }
@@ -2192,7 +2601,7 @@ private struct MultiZoomCard: View {
                     onCommit { $0.followCursorSmoothing = value }
                 }
 
-                SliderRow(label: "Cursor delay", value: averageFollowDelay, range: 0...0.8, suffix: "s", defaultValue: 0.10) { value in
+                SliderRow(label: "Cursor delay", value: averageFollowDelay, range: 0...0.8, suffix: "s", defaultValue: ZoomKeyframe.defaultFollowCursorDelay) { value in
                     onChange { $0.followCursorDelay = value }
                 } onCommit: { value in
                     onCommit { $0.followCursorDelay = value }
@@ -2227,7 +2636,14 @@ private struct MultiZoomCard: View {
                 .foregroundStyle(.secondary)
         }
         .padding(10)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.frBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.frBorder, lineWidth: 1)
+        )
     }
 }
 
@@ -2245,15 +2661,18 @@ private struct ZoomCenterPicker: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Center")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.frSecondaryText)
                 Spacer()
                 Button {
                     onCenterOnCursor()
                 } label: {
                     Label("Center on Cursor", systemImage: "scope")
+                        .font(.system(size: 11, weight: .medium))
                 }
                 .labelStyle(.titleAndIcon)
+                .buttonStyle(.bordered)
+                .tint(Color.frSecondaryText)
                 .controlSize(.small)
             }
             GeometryReader { proxy in
@@ -2542,7 +2961,7 @@ private struct BezierCurveEditor: View {
             let current = activeCurve
             ZStack {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .fill(Color.frBackground)
                 grid(size: size)
                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
                 controlLines(curve: current, size: size)
@@ -2899,8 +3318,8 @@ private struct PolishInspector: View {
 
     @ViewBuilder
     private func imagePositioningControls(path: String) -> some View {
-        let image = NSImage(contentsOfFile: path)
-        let valid = image?.isValid ?? false
+        let image = EditorBackgroundImageCache.shared.image(for: path)
+        let valid = image != nil
 
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -3021,7 +3440,7 @@ private struct BackgroundSwatch: View {
                     case .gradient(let top, let bot):
                         LinearGradient(colors: [top.color, bot.color], startPoint: .top, endPoint: .bottom)
                     case .image(let path):
-                        if let image = NSImage(contentsOfFile: path), image.isValid {
+                        if let image = EditorBackgroundImageCache.shared.image(for: path) {
                             BackgroundImageView(
                                 image: image,
                                 fit: .fill,
@@ -3051,7 +3470,7 @@ private struct BackgroundSwatch: View {
 
 /// Visual draggable focal-point picker over a thumbnail of the chosen background image.
 private struct ImageFocusPicker: View {
-    let image: NSImage
+    let image: EditorBackgroundImage
     let focusX: Double
     let focusY: Double
     let onChange: (Double, Double) -> Void
@@ -3434,7 +3853,14 @@ private struct CursorInspector: View {
             }
         }
         .padding(8)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.frBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.frBorder, lineWidth: 1)
+        )
     }
 
     private var customCursorTitle: String {
@@ -3594,6 +4020,7 @@ private struct ExportInspector: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(Color.frAccent)
                 .controlSize(.large)
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(renderer.isRendering)
@@ -3682,7 +4109,14 @@ private struct ExportInspector: View {
             }
         }
         .padding(10)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.frBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.frBorder, lineWidth: 1)
+        )
     }
 
     private func fileSize(at url: URL) -> String? {
@@ -3705,7 +4139,14 @@ private struct Stat: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.frBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.frBorder, lineWidth: 1)
+        )
     }
 }
 
@@ -3746,7 +4187,7 @@ private struct SliderRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(label).foregroundStyle(.secondary)
+                Text(label).foregroundStyle(Color.frSecondaryText)
                 Spacer()
                 Text("\(draftValue ?? value, specifier: range.upperBound > 10 ? "%.0f" : "%.2f")\(suffix)")
                     .monospacedDigit()

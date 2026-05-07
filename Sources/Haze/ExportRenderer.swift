@@ -369,7 +369,7 @@ final class ExportRenderer: ObservableObject {
             throw RecorderError.message("Could not create the export pixel buffer pool.")
         }
 
-        let queue = DispatchQueue(label: "FocusRecorder.Export.VideoWriter", qos: .userInitiated)
+        let queue = DispatchQueue(label: "Haze.Export.VideoWriter", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let pump = VideoFrameWritePump(
                 renderer: self,
@@ -415,7 +415,7 @@ final class ExportRenderer: ObservableObject {
             throw copy.reader.error ?? RecorderError.message("Could not start reading audio for export.")
         }
 
-        let queue = DispatchQueue(label: "FocusRecorder.Export.AudioWriter", qos: .userInitiated)
+        let queue = DispatchQueue(label: "Haze.Export.AudioWriter", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let pump = AudioWritePump(
                 copy: copy,

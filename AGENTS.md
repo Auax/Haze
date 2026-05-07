@@ -1,10 +1,6 @@
-# Focus Recorder
+# Haze
 
-Native macOS SwiftUI app for personal screen recording, inspired by Screen Studio.
-
-## Location
-
-`/Users/auax/Desktop/Trabajo/FocusRecorder`
+Native macOS SwiftUI app for personal screen recording
 
 ## Goal
 
@@ -31,15 +27,15 @@ Build a lightweight native macOS recorder that improves on default macOS screen 
 ## Important Files
 
 - `Package.swift`: SwiftPM package definition.
-- `Sources/FocusRecorder/FocusRecorderApp.swift`: app entry point.
-- `Sources/FocusRecorder/ContentView.swift`: main UI, preview, zoom timeline editor.
-- `Sources/FocusRecorder/CaptureEngine.swift`: ScreenCaptureKit recording, permission checks, source discovery, raw recording, cursor sampling, auto zoom generation.
-- `Sources/FocusRecorder/ExportRenderer.swift`: renders final video with smooth zooms and cursor overlay.
-- `Sources/FocusRecorder/CursorOverlay.swift`: custom cursor image compositing.
-- `Sources/FocusRecorder/Models.swift`: recording settings, cursor samples, zoom keyframes, session model.
-- `Sources/FocusRecorder/RegionPicker.swift`: draggable region picker overlay.
-- `scripts/package-app.sh`: builds and signs `Build/FocusRecorder.app`.
-- `scripts/reset-screen-recording-permission.sh`: resets macOS Screen Recording permission for `local.focusrecorder.app`.
+- `Sources/Haze/HazeApp.swift`: app entry point.
+- `Sources/Haze/ContentView.swift`: main UI, preview, zoom timeline editor.
+- `Sources/Haze/CaptureEngine.swift`: ScreenCaptureKit recording, permission checks, source discovery, raw recording, cursor sampling, auto zoom generation.
+- `Sources/Haze/ExportRenderer.swift`: renders final video with smooth zooms and cursor overlay.
+- `Sources/Haze/CursorOverlay.swift`: custom cursor image compositing.
+- `Sources/Haze/Models.swift`: recording settings, cursor samples, zoom keyframes, session model.
+- `Sources/Haze/RegionPicker.swift`: draggable region picker overlay.
+- `scripts/package-app.sh`: builds and signs `Build/Haze.app`.
+- `scripts/reset-screen-recording-permission.sh`: resets macOS Screen Recording permission for `local.haze.app`.
 
 ## Run
 
@@ -47,14 +43,14 @@ Use the app bundle, not `swift run`, for stable macOS Screen Recording permissio
 
 ```bash
 scripts/package-app.sh
-open Build/FocusRecorder.app
+open Build/Haze.app
 ```
 
 ## Permissions
 
 The app uses bundle id:
 
-`local.focusrecorder.app`
+`local.haze.app`
 
 The package script signs the bundle with a stable local designated requirement. If permissions get stuck:
 
@@ -67,7 +63,7 @@ Then open the app, grant Screen Recording permission in System Settings, quit, a
 ## Current Behavior
 
 - Recording works after Screen Recording permission is granted.
-- Raw recordings and sidecar timelines are saved to `~/Movies/FocusRecorder`.
+- Raw recordings and sidecar timelines are saved to `~/Movies/Haze`.
 - After recording, the app shows thumbnail-based preview frames instead of SwiftUI `VideoPlayer`.
 - `VideoPlayer` was removed because it crashed inside `_AVKit_SwiftUI` on macOS 26.5 after stopping a recording.
 - Export applies smooth zooms and custom cursor overlay.

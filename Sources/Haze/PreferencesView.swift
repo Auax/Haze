@@ -78,10 +78,18 @@ struct PreferencesView: View {
                 }
                 HStack {
                     Text("Cursor size")
-                    Slider(value: $store.preferences.defaultCursorScale, in: 0.5...3.0, step: 0.05)
+                    Slider(value: $store.preferences.defaultCursorScale, in: 0.5...5.0, step: 0.05)
                     Text(String(format: "%.2fx", store.preferences.defaultCursorScale))
                         .monospacedDigit()
                         .frame(width: 56, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Spring")
+                    Slider(value: $store.preferences.defaultCursorSpring, in: 0...2.0, step: 0.05)
+                    Text(String(format: "%.2f", store.preferences.defaultCursorSpring))
+                        .monospacedDigit()
+                        .frame(width: 48, alignment: .trailing)
                         .foregroundStyle(.secondary)
                 }
                 Toggle("Click pulse animation", isOn: $store.preferences.defaultCursorClickPulse)

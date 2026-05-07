@@ -3,16 +3,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "FocusRecorder",
+    name: "Haze",
     platforms: [
         .macOS(.v15)
     ],
     products: [
-        .executable(name: "FocusRecorder", targets: ["FocusRecorder"])
+        .executable(name: "Haze", targets: ["Haze"])
     ],
     targets: [
         .executableTarget(
-            name: "FocusRecorder",
+            name: "Haze",
             resources: [
                 .copy("Resources/Cursors")
             ],
@@ -25,6 +25,7 @@ let package = Package(
                 .linkedFramework("CoreImage"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("CoreVideo"),
+                .linkedFramework("ImageIO"),
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("SwiftUI")
             ]

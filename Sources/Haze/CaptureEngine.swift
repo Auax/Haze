@@ -47,8 +47,8 @@ final class CaptureEngine: NSObject, ObservableObject {
     private var activeSource: CaptureSource?
     private var activeOutputSize = CGSize(width: 1920, height: 1080)
     private var activeRawURL: URL?
-    private let outputQueue = DispatchQueue(label: "FocusRecorder.ScreenOutput")
-    private let microphoneMeterQueue = DispatchQueue(label: "FocusRecorder.MicrophoneMeter")
+    private let outputQueue = DispatchQueue(label: "Haze.ScreenOutput")
+    private let microphoneMeterQueue = DispatchQueue(label: "Haze.MicrophoneMeter")
     private let previewContext = CIContext(options: [.workingColorSpace: NSNull()])
     private var lastPreviewTime = Date.distantPast
 
@@ -94,22 +94,7 @@ final class CaptureEngine: NSObject, ObservableObject {
                         frame: Self.screenFrame(displayID: $0.displayID, width: $0.width, height: $0.height)
                     )
                 }
-                self.windows = content.windows
-                    .filter { $0.frame.width > 80 && $0.frame.height > 80 }
-                    .map { window -> CaptureSource in
-                        let appName = window.owningApplication?.applicationName ?? "Unknown app"
-                        let rawTitle = (window.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        let displayTitle = rawTitle.isEmpty ? appName : rawTitle
-                        return CaptureSource(
-                            id: "window-\(window.windowID)",
-                            kind: .window,
-                            title: displayTitle,
-                            subtitle: appName,
-                            width: Int(window.frame.width),
-                            height: Int(window.frame.height),
-                            frame: window.frame
-                        )
-                    }
+                self.windows = Self.windowSources(from: content.windows)
                 if self.selectedSourceID == nil {
                     self.selectedSourceID = self.displays.first?.id
                 }
@@ -122,14 +107,100 @@ final class CaptureEngine: NSObject, ObservableObject {
         }
     }
 
+    private static func windowSources(from windows: [SCWindow]) -> [CaptureSource] {
+        let selectableWindows = windows.filter(isPotentiallyUserSelectableWindow)
+        let processesWithNamedWindows = Set(selectableWindows.compactMap { window -> pid_t? in
+            guard let app = window.owningApplication,
+                  !normalizedWindowTitle(window).isEmpty,
+                  normalizedWindowTitle(window) != app.applicationName
+            else { return nil }
+            return app.processID
+        })
+
+        return selectableWindows
+            .filter { window in
+                guard let app = window.owningApplication else { return false }
+                let title = normalizedWindowTitle(window)
+                return !title.isEmpty || !processesWithNamedWindows.contains(app.processID)
+            }
+            .map { window -> CaptureSource in
+                let appName = window.owningApplication?.applicationName ?? "Unknown app"
+                let rawTitle = normalizedWindowTitle(window)
+                let displayTitle = rawTitle.isEmpty ? appName : rawTitle
+                return CaptureSource(
+                    id: "window-\(window.windowID)",
+                    kind: .window,
+                    title: displayTitle,
+                    subtitle: appName,
+                    width: Int(window.frame.width),
+                    height: Int(window.frame.height),
+                    frame: window.frame
+                )
+            }
+    }
+
+    private static func isPotentiallyUserSelectableWindow(_ window: SCWindow) -> Bool {
+        guard window.isOnScreen,
+              window.windowLayer == 0,
+              window.frame.width >= 120,
+              window.frame.height >= 90,
+              let app = window.owningApplication
+        else { return false }
+
+        let bundleIdentifier = app.bundleIdentifier.lowercased()
+        let currentBundleIdentifier = Bundle.main.bundleIdentifier?.lowercased()
+        if bundleIdentifier == currentBundleIdentifier
+            || bundleIdentifier == "local.haze.app"
+            || blockedWindowBundlePrefixes.contains(where: bundleIdentifier.hasPrefix) {
+            return false
+        }
+
+        let title = normalizedWindowTitle(window)
+        let searchableText = "\(title) \(app.applicationName)".lowercased()
+        return !blockedWindowTextFragments.contains { searchableText.contains($0) }
+    }
+
+    private static func normalizedWindowTitle(_ window: SCWindow) -> String {
+        (window.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let blockedWindowBundlePrefixes: [String] = [
+        "com.apple.controlcenter",
+        "com.apple.dock",
+        "com.apple.loginwindow",
+        "com.apple.notificationcenter",
+        "com.apple.preference",
+        "com.apple.screencaptureui",
+        "com.apple.spotlight",
+        "com.apple.systemuiserver",
+        "com.apple.wallpaper",
+        "com.apple.windowmanager"
+    ]
+
+    private static let blockedWindowTextFragments: [String] = [
+        "accessibility services",
+        "autofill",
+        "autorrelleno",
+        "centro de control",
+        "centro de notificaciones",
+        "control center",
+        "fondo de pantalla",
+        "force quit applications",
+        "forzar salida de las aplicaciones",
+        "loginwindow",
+        "notification center",
+        "offscreen wallpaper",
+        "spotlight"
+    ]
+
     func start(settings: RecordingSettings) async throws {
         guard !isRecording else { return }
         guard await ensureScreenRecordingPermission() else {
-            throw RecorderError.message("Screen Recording permission is not granted. Enable Focus Recorder in System Settings, then quit and reopen the app.")
+            throw RecorderError.message("Screen Recording permission is not granted. Enable Haze in System Settings, then quit and reopen the app.")
         }
         if settings.recordMicrophone {
             guard await ensureMicrophonePermission() else {
-                throw RecorderError.message("Microphone permission is not granted. Enable Focus Recorder in System Settings, then try again.")
+                throw RecorderError.message("Microphone permission is not granted. Enable Haze in System Settings, then try again.")
             }
             await MainActor.run {
                 self.stopMicrophoneMeter()
@@ -257,7 +328,7 @@ final class CaptureEngine: NSObject, ObservableObject {
         if hasScreenRecordingPermission {
             status = "Screen Recording permission granted"
         } else {
-            status = "Enable Focus Recorder in System Settings, then quit and reopen the app"
+            status = "Enable Haze in System Settings, then quit and reopen the app"
         }
         return hasScreenRecordingPermission
     }
@@ -452,7 +523,7 @@ final class CaptureEngine: NSObject, ObservableObject {
             throw RecorderError.message("Recording did not finish successfully.")
         }
 
-        let timelineURL = rawURL.deletingPathExtension().appendingPathExtension("focusrecorder.json")
+        let timelineURL = rawURL.deletingPathExtension().appendingPathExtension("haze.json")
         let measured = await Self.probeDuration(url: rawURL)
         var session = RecordingSession(
             createdAt: Date(),
@@ -712,9 +783,9 @@ final class CaptureEngine: NSObject, ObservableObject {
     private static func makeOutputURL(suffix: String) -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-        let name = "FocusRecorder-\(formatter.string(from: Date()))-\(suffix).mov"
+        let name = "Haze-\(formatter.string(from: Date()))-\(suffix).mov"
         let directory = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("FocusRecorder", isDirectory: true)
+            .appendingPathComponent("Haze", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent(name)
     }
@@ -854,8 +925,8 @@ final class CaptureEngine: NSObject, ObservableObject {
                 easing: cluster.kind == .click ? .smooth : .gentle,
                 rampFraction: cluster.kind == .click ? 0.26 : 0.36,
                 followCursor: false,
-                followCursorSmoothing: cluster.kind == .click ? 1.15 : 0.72,
-                followCursorDelay: cluster.kind == .click ? 0.16 : 0.10
+                followCursorSmoothing: ZoomKeyframe.defaultFollowCursorSmoothing,
+                followCursorDelay: ZoomKeyframe.defaultFollowCursorDelay
             ))
         }
         return coalescedZooms(zooms, totalDuration: totalDuration)
@@ -986,8 +1057,8 @@ final class CaptureEngine: NSObject, ObservableObject {
                 easing: .smooth,
                 rampFraction: 0.26,
                 followCursor: false,
-                followCursorSmoothing: 1.05,
-                followCursorDelay: 0.14
+                followCursorSmoothing: ZoomKeyframe.defaultFollowCursorSmoothing,
+                followCursorDelay: ZoomKeyframe.defaultFollowCursorDelay
             )
         }
         return coalescedZooms(zooms, totalDuration: duration)

@@ -1,0 +1,422 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA00000000000000000003F0 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F0 /* AppViewModel.swift */; };
+		AA00000000000000000003F1 /* CaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F1 /* CaptureEngine.swift */; };
+		AA00000000000000000003F2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F2 /* ContentView.swift */; };
+		AA00000000000000000003F3 /* CursorOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F3 /* CursorOverlay.swift */; };
+		AA00000000000000000003F4 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F4 /* EditorView.swift */; };
+		AA00000000000000000003F5 /* ExportRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F5 /* ExportRenderer.swift */; };
+		AA00000000000000000003F6 /* HazeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F6 /* HazeApp.swift */; };
+		AA00000000000000000003F7 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F7 /* Models.swift */; };
+		AA00000000000000000003F8 /* PlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F8 /* PlayerView.swift */; };
+		AA00000000000000000003F9 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001F9 /* Preferences.swift */; };
+		AA00000000000000000003FA /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001FA /* PreferencesView.swift */; };
+		AA00000000000000000003FB /* RegionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001FB /* RegionPicker.swift */; };
+		AA00000000000000000003FC /* RenderFrameState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001FC /* RenderFrameState.swift */; };
+		AA00000000000000000003FD /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001FD /* Theme.swift */; };
+		AA00000000000000000003FE /* TimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000001FE /* TimelineStore.swift */; };
+		AA00000000000000000004F0 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000002F1 /* AppIcon.icns */; };
+		AA00000000000000000004F1 /* Cursors in Resources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000002F2 /* Cursors */; };
+		AA00000000000000000006F0 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000005F0 /* AVFoundation.framework */; };
+		AA00000000000000000006F1 /* CoreImage.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000005F1 /* CoreImage.framework */; };
+		AA00000000000000000006F2 /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000005F2 /* CoreMedia.framework */; };
+		AA00000000000000000006F3 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000005F3 /* CoreVideo.framework */; };
+		AA00000000000000000006F4 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000005F4 /* ImageIO.framework */; };
+		AA00000000000000000006F5 /* ScreenCaptureKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA00000000000000000005F5 /* ScreenCaptureKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AA00000000000000000000E0 /* Haze.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Haze.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA00000000000000000001F0 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F1 /* CaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureEngine.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F3 /* CursorOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorOverlay.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F4 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F5 /* ExportRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRenderer.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F6 /* HazeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HazeApp.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F7 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F8 /* PlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerView.swift; sourceTree = "<group>"; };
+		AA00000000000000000001F9 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		AA00000000000000000001FA /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
+		AA00000000000000000001FB /* RegionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionPicker.swift; sourceTree = "<group>"; };
+		AA00000000000000000001FC /* RenderFrameState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderFrameState.swift; sourceTree = "<group>"; };
+		AA00000000000000000001FD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		AA00000000000000000001FE /* TimelineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineStore.swift; sourceTree = "<group>"; };
+		AA00000000000000000001FF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA00000000000000000002F0 /* Haze.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Haze.entitlements; sourceTree = "<group>"; };
+		AA00000000000000000002F1 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		AA00000000000000000002F2 /* Cursors */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Cursors; sourceTree = "<group>"; };
+		AA00000000000000000005F0 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		AA00000000000000000005F1 /* CoreImage.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreImage.framework; path = System/Library/Frameworks/CoreImage.framework; sourceTree = SDKROOT; };
+		AA00000000000000000005F2 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		AA00000000000000000005F3 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		AA00000000000000000005F4 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
+		AA00000000000000000005F5 /* ScreenCaptureKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenCaptureKit.framework; path = System/Library/Frameworks/ScreenCaptureKit.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA00000000000000000000C1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000000000006F0 /* AVFoundation.framework in Frameworks */,
+				AA00000000000000000006F1 /* CoreImage.framework in Frameworks */,
+				AA00000000000000000006F2 /* CoreMedia.framework in Frameworks */,
+				AA00000000000000000006F3 /* CoreVideo.framework in Frameworks */,
+				AA00000000000000000006F4 /* ImageIO.framework in Frameworks */,
+				AA00000000000000000006F5 /* ScreenCaptureKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA00000000000000000000AE /* main group */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000000D1 /* Haze */,
+				AA00000000000000000000D4 /* Frameworks */,
+				AA00000000000000000000D0 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000D0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000000E0 /* Haze.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000D1 /* Haze */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000001F6 /* HazeApp.swift */,
+				AA00000000000000000001F0 /* AppViewModel.swift */,
+				AA00000000000000000001F1 /* CaptureEngine.swift */,
+				AA00000000000000000001F2 /* ContentView.swift */,
+				AA00000000000000000001F3 /* CursorOverlay.swift */,
+				AA00000000000000000001F4 /* EditorView.swift */,
+				AA00000000000000000001F5 /* ExportRenderer.swift */,
+				AA00000000000000000001F7 /* Models.swift */,
+				AA00000000000000000001F8 /* PlayerView.swift */,
+				AA00000000000000000001F9 /* Preferences.swift */,
+				AA00000000000000000001FA /* PreferencesView.swift */,
+				AA00000000000000000001FB /* RegionPicker.swift */,
+				AA00000000000000000001FC /* RenderFrameState.swift */,
+				AA00000000000000000001FD /* Theme.swift */,
+				AA00000000000000000001FE /* TimelineStore.swift */,
+				AA00000000000000000001FF /* Info.plist */,
+				AA00000000000000000002F0 /* Haze.entitlements */,
+				AA00000000000000000000D2 /* Resources */,
+			);
+			name = Haze;
+			path = "Sources/Haze";
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000D2 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000002F1 /* AppIcon.icns */,
+				AA00000000000000000002F2 /* Cursors */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AA00000000000000000000D4 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AA00000000000000000005F0 /* AVFoundation.framework */,
+				AA00000000000000000005F1 /* CoreImage.framework */,
+				AA00000000000000000005F2 /* CoreMedia.framework */,
+				AA00000000000000000005F3 /* CoreVideo.framework */,
+				AA00000000000000000005F4 /* ImageIO.framework */,
+				AA00000000000000000005F5 /* ScreenCaptureKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA00000000000000000000B0 /* Haze */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00000000000000000000B1 /* Build configuration list for PBXNativeTarget "Haze" */;
+			buildPhases = (
+				AA00000000000000000000C0 /* Sources */,
+				AA00000000000000000000C1 /* Frameworks */,
+				AA00000000000000000000C2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Haze;
+			productName = Haze;
+			productReference = AA00000000000000000000E0 /* Haze.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA00000000000000000000AA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					AA00000000000000000000B0 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+				};
+			};
+			buildConfigurationList = AA00000000000000000000AB /* Build configuration list for PBXProject "Haze" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AA00000000000000000000AE;
+			productRefGroup = AA00000000000000000000D0 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA00000000000000000000B0 /* Haze */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA00000000000000000000C2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000000000004F0 /* AppIcon.icns in Resources */,
+				AA00000000000000000004F1 /* Cursors in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA00000000000000000000C0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000000000003F6 /* HazeApp.swift in Sources */,
+				AA00000000000000000003F0 /* AppViewModel.swift in Sources */,
+				AA00000000000000000003F1 /* CaptureEngine.swift in Sources */,
+				AA00000000000000000003F2 /* ContentView.swift in Sources */,
+				AA00000000000000000003F3 /* CursorOverlay.swift in Sources */,
+				AA00000000000000000003F4 /* EditorView.swift in Sources */,
+				AA00000000000000000003F5 /* ExportRenderer.swift in Sources */,
+				AA00000000000000000003F7 /* Models.swift in Sources */,
+				AA00000000000000000003F8 /* PlayerView.swift in Sources */,
+				AA00000000000000000003F9 /* Preferences.swift in Sources */,
+				AA00000000000000000003FA /* PreferencesView.swift in Sources */,
+				AA00000000000000000003FB /* RegionPicker.swift in Sources */,
+				AA00000000000000000003FC /* RenderFrameState.swift in Sources */,
+				AA00000000000000000003FD /* Theme.swift in Sources */,
+				AA00000000000000000003FE /* TimelineStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA00000000000000000000AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA00000000000000000000AD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		AA00000000000000000000B2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Sources/Haze/Haze.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = "Sources/Haze/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = "0.1.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "local.haze.app";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5;
+			};
+			name = Debug;
+		};
+		AA00000000000000000000B3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Sources/Haze/Haze.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = "Sources/Haze/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = "0.1.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "local.haze.app";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA00000000000000000000AB /* Build configuration list for PBXProject "Haze" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000000000000000000AC /* Debug */,
+				AA00000000000000000000AD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00000000000000000000B1 /* Build configuration list for PBXNativeTarget "Haze" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000000000000000000B2 /* Debug */,
+				AA00000000000000000000B3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = AA00000000000000000000AA /* Project object */;
+}

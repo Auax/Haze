@@ -4,21 +4,21 @@
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:find-skills-users-auax-agents-skills}",
-            "name": "Debug FocusRecorder",
-            "target": "FocusRecorder",
+            "cwd": "${workspaceFolder:Haze}",
+            "name": "Debug Haze",
+            "target": "Haze",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug FocusRecorder"
+            "preLaunchTask": "swift: Build Debug Haze"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:find-skills-users-auax-agents-skills}",
-            "name": "Release FocusRecorder",
-            "target": "FocusRecorder",
+            "cwd": "${workspaceFolder:Haze}",
+            "name": "Release Haze",
+            "target": "Haze",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release FocusRecorder"
+            "preLaunchTask": "swift: Build Release Haze"
         }
     ]
 }

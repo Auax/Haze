@@ -116,23 +116,23 @@ struct AudioInputDevice: Identifiable, Hashable {
 
 struct RecordingSettings: Codable {
     var captureKind: CaptureKind = .display
-    var resolutionPreset: ResolutionPreset = .p1080
-    var bitrateMbps: Double = 18
+    var resolutionPreset: ResolutionPreset = .native
+    var bitrateMbps: Double = 60
     var frameRate: Int = 60
     var region: CGRect = CGRect(x: 120, y: 120, width: 1280, height: 720)
     /// Cursor smoothing strength. 0 = raw, 2 = very smooth.
-    var cursorSmoothing: Double = 0.78
+    var cursorSmoothing: Double = 1.3
     /// Half-window (in seconds) used to weight neighboring cursor samples for smoothing.
     var cursorSmoothingWindow: Double = 0.34
     /// Hotspot-anchored cursor tilt from fast movement. 0 = off, 2 = strongest.
-    var cursorSpring: Double = 0.35
+    var cursorSpring: Double = 2.0
     /// Render-time cursor opacity 0...1.
     var cursorOpacity: Double = 1.0
     /// If true, cursor pulses (grows briefly) on each click.
     var cursorClickPulse: Bool = true
     /// Strength of the click pulse 0...1.
     var cursorClickPulseStrength: Double = 0.55
-    var cursorScale: Double = 1.0
+    var cursorScale: Double = 2.5
     var cursorSprite: CursorSprite = .system
     var recordMicrophone: Bool = false
     var microphoneDeviceID: String? = nil
@@ -354,6 +354,9 @@ struct CubicBezier: Codable, Hashable, Equatable {
 }
 
 struct ZoomKeyframe: Codable, Identifiable, Hashable {
+    static let defaultFollowCursorSmoothing = 1.5
+    static let defaultFollowCursorDelay = 0.2
+
     var id = UUID()
     var start: Double
     var duration: Double
@@ -368,9 +371,9 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
     var followCursor: Bool = false
     var followCursorStyle: CursorFollowStyle = .cinematic
     /// Time-based smoothing for follow-cursor zoom center tracking. 0 tracks tightly, 2 is very smooth.
-    var followCursorSmoothing: Double = 0.72
+    var followCursorSmoothing: Double = Self.defaultFollowCursorSmoothing
     /// Intentional camera lag in seconds while the zoom center follows the cursor.
-    var followCursorDelay: Double = 0.10
+    var followCursorDelay: Double = Self.defaultFollowCursorDelay
     /// Fraction of the zoomed viewport where the cursor can move before the cinematic camera follows.
     var followCursorDeadZoneWidth: Double = 0.35
     var followCursorDeadZoneHeight: Double = 0.30
@@ -398,8 +401,8 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         bezier: CubicBezier? = nil,
         followCursor: Bool = false,
         followCursorStyle: CursorFollowStyle = .cinematic,
-        followCursorSmoothing: Double = 0.72,
-        followCursorDelay: Double = 0.10,
+        followCursorSmoothing: Double = ZoomKeyframe.defaultFollowCursorSmoothing,
+        followCursorDelay: Double = ZoomKeyframe.defaultFollowCursorDelay,
         followCursorDeadZoneWidth: Double = 0.35,
         followCursorDeadZoneHeight: Double = 0.30,
         followCursorAnchorX: Double = 0.5,
@@ -443,8 +446,8 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         bezier = (try container.decodeIfPresent(CubicBezier.self, forKey: .bezier) ?? easing.curve).clamped()
         followCursor = try container.decodeIfPresent(Bool.self, forKey: .followCursor) ?? false
         followCursorStyle = try container.decodeIfPresent(CursorFollowStyle.self, forKey: .followCursorStyle) ?? .cinematic
-        followCursorSmoothing = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorSmoothing) ?? 0.72, 0), 2)
-        followCursorDelay = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDelay) ?? 0.10, 0), 0.8)
+        followCursorSmoothing = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorSmoothing) ?? Self.defaultFollowCursorSmoothing, 0), 2)
+        followCursorDelay = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDelay) ?? Self.defaultFollowCursorDelay, 0), 0.8)
         followCursorDeadZoneWidth = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneWidth) ?? 0.35, 0.08), 0.92)
         followCursorDeadZoneHeight = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneHeight) ?? 0.30, 0.08), 0.92)
         followCursorAnchorX = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorX) ?? 0.5, 0.12), 0.88)

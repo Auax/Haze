@@ -11,6 +11,7 @@ struct ContentView: View {
     private let barIconSize: CGFloat = 20
     private let barLabelSize: CGFloat = 11
     private let recordIconSize: CGFloat = 26
+    private let sourceAutoRefreshInterval: UInt64 = 3_000_000_000
 
     var body: some View {
         recorderBar
@@ -22,21 +23,24 @@ struct ContentView: View {
             model.capture.refreshMicrophones()
             updateMicrophoneMonitoring()
         }
+        .task {
+            await autoRefreshSources()
+        }
         .onChange(of: model.settings.recordMicrophone) { _, _ in updateMicrophoneMonitoring() }
         .onChange(of: model.settings.microphoneDeviceID) { _, _ in updateMicrophoneMonitoring() }
         .onChange(of: model.capture.isRecording) { _, _ in updateMicrophoneMonitoring() }
-        .onReceive(NotificationCenter.default.publisher(for: .focusRecorderHideRecorder)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .hazeHideRecorder)) { _ in
             RecorderWindowController.hide()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .focusRecorderShowRecorder)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .hazeShowRecorder)) { _ in
             RecorderWindowController.show()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .focusRecorderShowEditor)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .hazeShowEditor)) { _ in
             if model.currentSession != nil {
                 EditorWindowController.shared.show(model: model)
             }
         }
-        .alert("Focus Recorder", isPresented: Binding(
+        .alert("Haze", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
         )) {
@@ -71,11 +75,11 @@ struct ContentView: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: barIconSize, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
                     .frame(width: 30, height: 44)
             }
             .buttonStyle(.plain)
-            .help("Hide Focus Recorder")
+            .help("Hide Haze")
 
             barSeparator
                 .padding(.leading, 14)
@@ -215,11 +219,12 @@ struct ContentView: View {
         return VStack(spacing: 4) {
             Image(systemName: symbol)
                 .font(.system(size: barIconSize, weight: .regular))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.white)
                 .frame(width: 24, height: 24)
             Text(title)
                 .font(.system(size: barLabelSize, weight: .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.white)
         }
-        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
         .frame(width: 64, height: 52)
         .background(
             RoundedRectangle(cornerRadius: 9)
@@ -261,12 +266,12 @@ struct ContentView: View {
                 Image(systemName: model.settings.recordMicrophone ? "mic.fill" : "mic.slash.fill")
                     .font(.system(size: barIconSize, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white)
                     .frame(width: 24, height: 24)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.white.opacity(0.75))
             }
-            .foregroundStyle(model.settings.recordMicrophone ? .primary : .secondary)
             .frame(width: 44, height: 44)
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -284,7 +289,7 @@ struct ContentView: View {
                 .font(.system(size: barIconSize, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
                 .frame(width: 24, height: 24)
-                .foregroundStyle(model.settings.recordSystemAudio ? .primary : .secondary)
+                .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
                 .contentShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -300,6 +305,7 @@ struct ContentView: View {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: barIconSize, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
                 .frame(width: 40, height: 44)
                 .contentShape(RoundedRectangle(cornerRadius: 8))
@@ -320,6 +326,7 @@ struct ContentView: View {
             Image(systemName: "gearshape")
                 .font(.system(size: barIconSize, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
                 .frame(width: 40, height: 44)
                 .contentShape(RoundedRectangle(cornerRadius: 8))
@@ -334,6 +341,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: barIconSize, weight: .regular))
+                .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
                 .frame(width: 40, height: 44)
                 .contentShape(RoundedRectangle(cornerRadius: 8))
@@ -413,10 +421,18 @@ struct ContentView: View {
         )
     }
 
+    private func autoRefreshSources() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: sourceAutoRefreshInterval)
+            guard !Task.isCancelled, !model.capture.isRecording else { continue }
+            await model.capture.refreshSources()
+        }
+    }
+
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Focus Recorder")
+                Text("Haze")
                     .font(.title2.weight(.semibold))
                 Text(model.capture.status)
                     .font(.caption)
@@ -785,7 +801,7 @@ private struct LibraryPopover: View {
             HStack {
                 Button {
                     let dir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
-                        .appendingPathComponent("FocusRecorder", isDirectory: true)
+                        .appendingPathComponent("Haze", isDirectory: true)
                     NSWorkspace.shared.open(dir)
                 } label: {
                     Label("Open Folder", systemImage: "folder")
@@ -914,7 +930,7 @@ private struct FloatingRecorderWindowConfigurator: NSViewRepresentable {
 
     private func configure(window: NSWindow?) {
         guard let window else { return }
-        guard window.identifier?.rawValue == "recorder" || window.title == "Focus Recorder" else { return }
+        guard window.identifier?.rawValue == "recorder" || window.title == "Haze" else { return }
         let windowID = ObjectIdentifier(window)
         let shouldPlaceWindow = !Self.configuredWindows.contains(windowID)
 
