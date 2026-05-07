@@ -95,9 +95,11 @@ thumbnails/
 .env.local
 
 # =========================
-# Codex (contains local absolute paths)
+# Codex / IDE (contain local absolute paths or personal settings)
 # =========================
 .codex/
+.claude/
+.vscode/
 
 # =========================
 # Misc
