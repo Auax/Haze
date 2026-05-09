@@ -45,7 +45,7 @@ final class CursorOverlay {
     private var spriteRenderCache: [SpriteCacheKey: CursorSpriteRender] = [:]
     private var reportedFailures = Set<String>()
     private let reportedFailuresLock = NSLock()
-    private let renderContext = CIContext(options: [.workingColorSpace: NSNull()])
+    private let renderContext = RenderContextFactory.hazeMetalBacked()
 
     private init() {}
 

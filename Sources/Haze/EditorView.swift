@@ -68,6 +68,7 @@ struct EditorView: View {
 
     @ViewBuilder
     private func content(session: RecordingSession) -> some View {
+        let timelineIndex = RenderTimelineIndex(session: session)
         VStack(spacing: 0) {
             if !isPreviewFullscreen {
                 EditorTopBar(session: session)
@@ -87,6 +88,7 @@ struct EditorView: View {
                             VStack(spacing: 0) {
                                 EditorPreview(
                                     session: session,
+                                    timelineIndex: timelineIndex,
                                     controller: controller,
                                     playbackTime: $model.playbackTime,
                                     selectedZoomID: $model.selectedZoomID
@@ -169,10 +171,12 @@ struct EditorView: View {
 
     @ViewBuilder
     private func fullscreenContent(session: RecordingSession, controller: PlaybackController) -> some View {
+        let timelineIndex = RenderTimelineIndex(session: session)
         ZStack {
             Color.black.ignoresSafeArea()
             EditorPreview(
                 session: session,
+                timelineIndex: timelineIndex,
                 controller: controller,
                 playbackTime: $model.playbackTime,
                 selectedZoomID: $model.selectedZoomID
@@ -430,6 +434,7 @@ private struct EditorTopBar: View {
 
 private struct EditorPreview: View {
     let session: RecordingSession
+    let timelineIndex: RenderTimelineIndex
     @ObservedObject var controller: PlaybackController
     @Binding var playbackTime: Double
     @Binding var selectedZoomID: UUID?
@@ -490,7 +495,7 @@ private struct EditorPreview: View {
         let frameW = frameH * aspect
         let radius = videoOnly ? 0 : max(0, CGFloat(session.edit.cornerRadius)) * min(frameW, frameH) * 1.4
         let renderState = RenderFrameStateBuilder.make(
-            session: session,
+            timelineIndex: timelineIndex,
             outputTime: max(0, playbackTime - session.timelineContentStart),
             sourceTime: playbackTime,
             canvasSize: size
@@ -582,13 +587,13 @@ private struct EditorPreview: View {
 
         let frameDuration = 1.0 / Double(max(1, session.settings.frameRate))
         let before = RenderFrameStateBuilder.make(
-            session: session,
+            timelineIndex: timelineIndex,
             outputTime: max(0, state.outputTime - frameDuration * 0.5),
             sourceTime: max(0, state.sourceTime - frameDuration * 0.5),
             canvasSize: state.canvasSize
         )
         let after = RenderFrameStateBuilder.make(
-            session: session,
+            timelineIndex: timelineIndex,
             outputTime: state.outputTime + frameDuration * 0.5,
             sourceTime: min(session.approximateDuration, state.sourceTime + frameDuration * 0.5),
             canvasSize: state.canvasSize
@@ -1714,6 +1719,8 @@ private struct ThumbnailStrip: View {
     @State private var thumbnails: [CGImage] = []
     @State private var loadKey: String = ""
 
+    private static let targetMaximumSize = CGSize(width: 200, height: 120)
+
     static func imageAsync(generator: AVAssetImageGenerator, at time: CMTime) async -> CGImage? {
         await withCheckedContinuation { (continuation: CheckedContinuation<CGImage?, Never>) in
             generator.generateCGImageAsynchronously(for: time) { image, _, _ in
@@ -1746,19 +1753,33 @@ private struct ThumbnailStrip: View {
     }
 
     private func loadThumbnails() async {
-        let key = "\(url.path)-\(Int(startTime * 1000))-\(Int(endTime * 1000))-\(Int(width))"
-        loadKey = key
         let duration = max(0.001, endTime - startTime)
         let count = max(8, min(40, Int(width / 90)))
+        let cacheKey = ThumbnailImageCache.Key(
+            url: url,
+            startTime: startTime,
+            endTime: endTime,
+            thumbnailCount: count,
+            targetMaximumSize: Self.targetMaximumSize
+        )
+        let key = cacheKey.loadIdentifier(width: width)
+        loadKey = key
+        if let cached = await ThumbnailImageCache.shared.images(for: cacheKey) {
+            if !Task.isCancelled, loadKey == key {
+                thumbnails = cached
+            }
+            return
+        }
         let times: [CMTime] = (0..<count).map { i in
             CMTime(seconds: startTime + duration * Double(i) / Double(max(1, count - 1)),
                    preferredTimescale: 600)
         }
+        let maximumSize = Self.targetMaximumSize
         let images = await Task.detached(priority: .utility) { () -> [CGImage] in
             let asset = AVURLAsset(url: url)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 200, height: 120)
+            generator.maximumSize = maximumSize
             generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
             generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
             var out: [CGImage] = []
@@ -1769,9 +1790,75 @@ private struct ThumbnailStrip: View {
             }
             return out
         }.value
+        await ThumbnailImageCache.shared.store(images, for: cacheKey)
         if !Task.isCancelled, loadKey == key {
             thumbnails = images
         }
+    }
+}
+
+private actor ThumbnailImageCache {
+    static let shared = ThumbnailImageCache()
+
+    struct Key: Hashable {
+        let path: String
+        let modificationDate: TimeInterval
+        let fileSize: UInt64
+        let startBucket: Int
+        let endBucket: Int
+        let thumbnailCount: Int
+        let maxWidth: Int
+        let maxHeight: Int
+
+        init(
+            url: URL,
+            startTime: Double,
+            endTime: Double,
+            thumbnailCount: Int,
+            targetMaximumSize: CGSize
+        ) {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let modificationDate = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+
+            self.path = url.path
+            self.modificationDate = modificationDate
+            self.fileSize = fileSize
+            self.startBucket = Int((startTime * 1000).rounded())
+            self.endBucket = Int((endTime * 1000).rounded())
+            self.thumbnailCount = thumbnailCount
+            self.maxWidth = Int(targetMaximumSize.width.rounded())
+            self.maxHeight = Int(targetMaximumSize.height.rounded())
+        }
+
+        func loadIdentifier(width: Double) -> String {
+            "\(path)-\(modificationDate)-\(fileSize)-\(startBucket)-\(endBucket)-\(thumbnailCount)-\(maxWidth)x\(maxHeight)-\(Int(width))"
+        }
+    }
+
+    private let entryLimit = 24
+    private var entries: [Key: [CGImage]] = [:]
+    private var accessOrder: [Key] = []
+
+    func images(for key: Key) -> [CGImage]? {
+        guard let images = entries[key] else { return nil }
+        markUsed(key)
+        return images
+    }
+
+    func store(_ images: [CGImage], for key: Key) {
+        guard !images.isEmpty else { return }
+        entries[key] = images
+        markUsed(key)
+        while accessOrder.count > entryLimit, let oldest = accessOrder.first {
+            accessOrder.removeFirst()
+            entries.removeValue(forKey: oldest)
+        }
+    }
+
+    private func markUsed(_ key: Key) {
+        accessOrder.removeAll { $0 == key }
+        accessOrder.append(key)
     }
 }
 

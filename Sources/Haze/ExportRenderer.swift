@@ -26,7 +26,7 @@ final class ExportRenderer: ObservableObject {
     @Published var isRendering = false
     @Published var status = "Idle"
 
-    private let context = CIContext(options: [.workingColorSpace: NSNull()])
+    private let context = RenderContextFactory.hazeMetalBacked()
 
     func render(session: RecordingSession, outputDirectory: URL? = nil) async throws -> URL {
         await MainActor.run {
@@ -107,6 +107,7 @@ final class ExportRenderer: ObservableObject {
         }
 
         let polish = PolishPipeline(session: session, context: context)
+        let timelineIndex = RenderTimelineIndex(session: session)
         try await writeVideoFrames(
             frameProvider: frameProvider,
             adaptor: adaptor,
@@ -114,6 +115,7 @@ final class ExportRenderer: ObservableObject {
             writer: writer,
             polish: polish,
             session: session,
+            timelineIndex: timelineIndex,
             trimStart: trimStart,
             trimEnd: trimEnd,
             fps: fps,
@@ -151,6 +153,7 @@ final class ExportRenderer: ObservableObject {
         let writer: AVAssetWriter
         let polish: PolishPipeline
         let session: RecordingSession
+        let timelineIndex: RenderTimelineIndex
         let trimStart: Double
         let trimEnd: Double
         let fps: Int
@@ -168,6 +171,7 @@ final class ExportRenderer: ObservableObject {
             writer: AVAssetWriter,
             polish: PolishPipeline,
             session: RecordingSession,
+            timelineIndex: RenderTimelineIndex,
             trimStart: Double,
             trimEnd: Double,
             fps: Int,
@@ -182,6 +186,7 @@ final class ExportRenderer: ObservableObject {
             self.writer = writer
             self.polish = polish
             self.session = session
+            self.timelineIndex = timelineIndex
             self.trimStart = trimStart
             self.trimEnd = trimEnd
             self.fps = fps
@@ -198,7 +203,7 @@ final class ExportRenderer: ObservableObject {
                     let sourceTime = min(trimEnd, trimStart + outputTime)
                     let sourceFrame = try frameProvider.frame(at: sourceTime)
                     let frameState = RenderFrameStateBuilder.make(
-                        session: session,
+                        timelineIndex: timelineIndex,
                         outputTime: outputTime,
                         sourceTime: sourceTime,
                         canvasSize: CGSize(width: session.width, height: session.height)
@@ -207,6 +212,7 @@ final class ExportRenderer: ObservableObject {
                         imageBuffer: sourceFrame,
                         state: frameState,
                         session: session,
+                        timelineIndex: timelineIndex,
                         polish: polish,
                         trimStart: trimStart,
                         trimEnd: trimEnd,
@@ -360,6 +366,7 @@ final class ExportRenderer: ObservableObject {
         writer: AVAssetWriter,
         polish: PolishPipeline,
         session: RecordingSession,
+        timelineIndex: RenderTimelineIndex,
         trimStart: Double,
         trimEnd: Double,
         fps: Int,
@@ -379,6 +386,7 @@ final class ExportRenderer: ObservableObject {
                 writer: writer,
                 polish: polish,
                 session: session,
+                timelineIndex: timelineIndex,
                 trimStart: trimStart,
                 trimEnd: trimEnd,
                 fps: fps,
@@ -467,8 +475,9 @@ final class ExportRenderer: ObservableObject {
             ))
             .cropped(to: CGRect(x: 0, y: 0, width: session.width, height: session.height))
         let polish = PolishPipeline(session: session, context: context)
+        let timelineIndex = RenderTimelineIndex(session: session)
         let frameState = RenderFrameStateBuilder.make(
-            session: session,
+            timelineIndex: timelineIndex,
             outputTime: max(0, time - session.timelineContentStart),
             sourceTime: time,
             canvasSize: CGSize(width: session.width, height: session.height)
@@ -477,6 +486,7 @@ final class ExportRenderer: ObservableObject {
             sourceImage: normalized,
             state: frameState,
             session: session,
+            timelineIndex: timelineIndex,
             polish: polish,
             trimStart: session.timelineContentStart,
             trimEnd: session.timelineContentEnd,
@@ -504,6 +514,7 @@ final class ExportRenderer: ObservableObject {
         imageBuffer: CVPixelBuffer,
         state: RenderFrameState,
         session: RecordingSession,
+        timelineIndex: RenderTimelineIndex,
         polish: PolishPipeline,
         trimStart: Double,
         trimEnd: Double,
@@ -515,6 +526,7 @@ final class ExportRenderer: ObservableObject {
             sourceImage: base,
             state: state,
             session: session,
+            timelineIndex: timelineIndex,
             polish: polish,
             trimStart: trimStart,
             trimEnd: trimEnd,
@@ -526,12 +538,13 @@ final class ExportRenderer: ObservableObject {
         sourceImage: CIImage,
         state: RenderFrameState,
         session: RecordingSession,
+        timelineIndex: RenderTimelineIndex,
         polish: PolishPipeline,
         trimStart: Double,
         trimEnd: Double,
         fps: Int
     ) -> CIImage {
-        guard shouldApplyMotionBlur(state: state, session: session, fps: fps) else {
+        guard shouldApplyMotionBlur(state: state, session: session, timelineIndex: timelineIndex, fps: fps) else {
             return renderSinglePass(sourceImage: sourceImage, state: state, session: session, polish: polish)
         }
 
@@ -552,7 +565,7 @@ final class ExportRenderer: ObservableObject {
             let offset = (unit - 0.5) * shutter
             let sampleSourceTime = min(max(trimStart, state.sourceTime + offset), trimEnd)
             let sampleState = RenderFrameStateBuilder.make(
-                session: session,
+                timelineIndex: timelineIndex,
                 outputTime: max(0, state.outputTime + offset),
                 sourceTime: sampleSourceTime,
                 canvasSize: state.canvasSize
@@ -607,18 +620,23 @@ final class ExportRenderer: ObservableObject {
         )
     }
 
-    private func shouldApplyMotionBlur(state: RenderFrameState, session: RecordingSession, fps: Int) -> Bool {
+    private func shouldApplyMotionBlur(
+        state: RenderFrameState,
+        session: RecordingSession,
+        timelineIndex: RenderTimelineIndex,
+        fps: Int
+    ) -> Bool {
         let strength = state.motionBlurAmount
         guard strength > 0.001 else { return false }
         let dt = max(1.0 / Double(max(1, fps)), 0.001)
         let before = RenderFrameStateBuilder.make(
-            session: session,
+            timelineIndex: timelineIndex,
             outputTime: max(0, state.outputTime - dt * 0.5),
             sourceTime: max(0, state.sourceTime - dt * 0.5),
             canvasSize: state.canvasSize
         )
         let after = RenderFrameStateBuilder.make(
-            session: session,
+            timelineIndex: timelineIndex,
             outputTime: state.outputTime + dt * 0.5,
             sourceTime: min(session.approximateDuration, state.sourceTime + dt * 0.5),
             canvasSize: state.canvasSize

@@ -49,7 +49,8 @@ final class CaptureEngine: NSObject, ObservableObject {
     private var activeRawURL: URL?
     private let outputQueue = DispatchQueue(label: "Haze.ScreenOutput")
     private let microphoneMeterQueue = DispatchQueue(label: "Haze.MicrophoneMeter")
-    private let previewContext = CIContext(options: [.workingColorSpace: NSNull()])
+    private let previewContext = RenderContextFactory.hazeMetalBacked()
+    private let maxLivePreviewSize = CGSize(width: 720, height: 450)
     private var lastPreviewTime = Date.distantPast
 
     var selectedSource: CaptureSource? {
@@ -1215,12 +1216,32 @@ extension CaptureEngine: SCStreamOutput, SCStreamDelegate {
 
         let width = CVPixelBufferGetWidth(imageBuffer)
         let height = CVPixelBufferGetHeight(imageBuffer)
+        let previewSize = livePreviewSize(for: CGSize(width: width, height: height))
+        let sourceRect = CGRect(x: 0, y: 0, width: width, height: height)
+        let previewRect = CGRect(origin: .zero, size: previewSize)
+        let scaleX = previewSize.width / max(1, CGFloat(width))
+        let scaleY = previewSize.height / max(1, CGFloat(height))
         let image = CIImage(cvPixelBuffer: imageBuffer)
-        guard let cgImage = previewContext.createCGImage(image, from: CGRect(x: 0, y: 0, width: width, height: height)) else { return }
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
+            .cropped(to: sourceRect)
+            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        guard let cgImage = previewContext.createCGImage(image, from: previewRect) else { return }
+        let nsImage = NSImage(cgImage: cgImage, size: previewSize)
         DispatchQueue.main.async {
             self.previewImage = nsImage
         }
+    }
+
+    private func livePreviewSize(for sourceSize: CGSize) -> CGSize {
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return .zero }
+        let scale = min(
+            1,
+            maxLivePreviewSize.width / sourceSize.width,
+            maxLivePreviewSize.height / sourceSize.height
+        )
+        return CGSize(
+            width: max(1, floor(sourceSize.width * scale)),
+            height: max(1, floor(sourceSize.height * scale))
+        )
     }
 
     private func frameBufferForWriting(
