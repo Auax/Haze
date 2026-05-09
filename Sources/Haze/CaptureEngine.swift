@@ -51,6 +51,13 @@ final class CaptureEngine: NSObject, ObservableObject {
     private let microphoneMeterQueue = DispatchQueue(label: "Haze.MicrophoneMeter")
     private let previewContext = RenderContextFactory.hazeMetalBacked()
     private let maxLivePreviewSize = CGSize(width: 720, height: 450)
+    private let cursorSampleInterval: TimeInterval = 1.0 / 240.0
+    private let cursorStillHeartbeatInterval: TimeInterval = 1.0 / 30.0
+    private let cursorSlowHeartbeatInterval: TimeInterval = 1.0 / 60.0
+    private let cursorMediumSpeedThreshold: CGFloat = 240
+    private let cursorFastSpeedThreshold: CGFloat = 900
+    private let cursorStillMovementThreshold: CGFloat = 0.15
+    private let cursorSlowMovementThreshold: CGFloat = 1.0
     private var lastPreviewTime = Date.distantPast
 
     var selectedSource: CaptureSource? {
@@ -636,18 +643,41 @@ final class CaptureEngine: NSObject, ObservableObject {
     }
 
     private func startCursorTimer() {
-        cursorTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
-            guard let self, let started = self.recordingStartedAt else { return }
-            let now = Date().timeIntervalSince(started)
+        cursorTimer = Timer.scheduledTimer(withTimeInterval: cursorSampleInterval, repeats: true) { [weak self] _ in
+            guard let self, let now = self.currentRecordingTimelineTime() else { return }
             let point = NSEvent.mouseLocation
             let mapped = self.mapCursorToVideo(point)
-            self.cursorSamples.append(CursorSample(
-                time: now,
-                x: mapped.x,
-                y: mapped.y
-            ))
+            if self.shouldAppendCursorSample(time: now, position: mapped) {
+                self.cursorSamples.append(CursorSample(
+                    time: now,
+                    x: mapped.x,
+                    y: mapped.y
+                ))
+            }
             self.sampleCursorShape(at: now)
         }
+    }
+
+    private func shouldAppendCursorSample(time: Double, position: CGPoint) -> Bool {
+        guard let last = cursorSamples.last else { return true }
+        let elapsed = time - last.time
+        guard elapsed > 0 else { return false }
+
+        let dx = position.x - last.x
+        let dy = position.y - last.y
+        let distance = hypot(dx, dy)
+        let speed = distance / CGFloat(elapsed)
+
+        if distance <= cursorStillMovementThreshold {
+            return elapsed >= cursorStillHeartbeatInterval
+        }
+        if speed >= cursorFastSpeedThreshold {
+            return true
+        }
+        if speed >= cursorMediumSpeedThreshold {
+            return elapsed >= cursorSampleInterval * 1.5 || distance >= cursorSlowMovementThreshold
+        }
+        return elapsed >= cursorSlowHeartbeatInterval || distance >= cursorSlowMovementThreshold
     }
 
     /// Sample the OS-wide cursor shape and record an event whenever it changes. We only store
@@ -677,10 +707,10 @@ final class CaptureEngine: NSObject, ObservableObject {
     private func startEventMonitors(settings: RecordingSettings) {
         if settings.detectClicks {
             mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                guard let self, let started = self.recordingStartedAt else { return }
+                guard let self, let time = self.currentRecordingTimelineTime() else { return }
                 let mapped = self.mapCursorToVideo(NSEvent.mouseLocation)
                 self.clickEvents.append(MouseClickEvent(
-                    time: Date().timeIntervalSince(started),
+                    time: time,
                     x: mapped.x,
                     y: mapped.y,
                     isRightClick: event.type == .rightMouseDown
@@ -689,9 +719,9 @@ final class CaptureEngine: NSObject, ObservableObject {
         }
         if settings.detectKeystrokes {
             keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
-                guard let self, let started = self.recordingStartedAt else { return }
+                guard let self, let time = self.currentRecordingTimelineTime() else { return }
                 self.keystrokeEvents.append(KeystrokeEvent(
-                    time: Date().timeIntervalSince(started),
+                    time: time,
                     isModifier: event.type == .flagsChanged
                 ))
             }
@@ -736,8 +766,7 @@ final class CaptureEngine: NSObject, ObservableObject {
     /// Mark the current recording time as a manual zoom point. Safe to call from any thread.
     /// Resolves to a real `ZoomKeyframe` when the recording stops.
     func markManualZoom() {
-        guard isRecording, let started = recordingStartedAt else { return }
-        let elapsed = Date().timeIntervalSince(started)
+        guard isRecording, let elapsed = currentRecordingTimelineTime() else { return }
         // Coalesce double-presses so a held hotkey doesn't dump dozens of duplicates.
         if let last = manualZoomTimes.last, elapsed - last < 0.4 { return }
         manualZoomTimes.append(elapsed)
@@ -745,6 +774,15 @@ final class CaptureEngine: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.manualZoomCount = count
         }
+    }
+
+    private func currentRecordingTimelineTime() -> Double? {
+        guard let firstVideoTime else { return nil }
+        let hostTime = CMClockGetTime(CMClockGetHostTimeClock())
+        let relative = CMTimeSubtract(hostTime, firstVideoTime)
+        let seconds = CMTimeGetSeconds(relative)
+        guard seconds.isFinite else { return nil }
+        return max(0, seconds)
     }
 
     private func mapCursorToVideo(_ screenPoint: CGPoint) -> CGPoint {

@@ -368,7 +368,7 @@ struct ContentView: View {
                     Slider(value: Binding(
                         get: { model.settings.bitrateMbps },
                         set: { model.settings.bitrateMbps = $0.rounded() }
-                    ), in: 4...80)
+                    ), in: 4...100)
                 }
             }
             .padding(16)
@@ -480,10 +480,10 @@ struct ContentView: View {
             }
             HStack {
                 Text("Bitrate").frame(width: 90, alignment: .leading)
-                Slider(value: $model.settings.bitrateMbps, in: 4...80, step: 1)
+                Slider(value: $model.settings.bitrateMbps, in: 4...100, step: 1)
                 Text("\(Int(model.settings.bitrateMbps)) Mbps")
                     .monospacedDigit()
-                    .frame(width: 64, alignment: .trailing)
+                    .frame(width: 72, alignment: .trailing)
             }
             Stepper("Frame rate: \(model.settings.frameRate) fps", value: $model.settings.frameRate, in: 24...120, step: 6)
         }

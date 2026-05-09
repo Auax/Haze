@@ -3257,8 +3257,11 @@ private struct CurveNumberField: View {
 private struct PolishInspector: View {
     @EnvironmentObject var model: AppViewModel
     let session: RecordingSession
+    @State private var isWallpaperGridExpanded = false
+    @State private var loadingWallpaperID: String?
 
     var edit: EditSettings { session.edit }
+    private let wallpapers = WallpaperLibrary.bundledWallpapers()
 
     private var currentMode: BackgroundMode {
         switch edit.background {
@@ -3341,21 +3344,6 @@ private struct PolishInspector: View {
                     var e = edit; e.shadow = $0; model.updateEditSettings(e); model.endUndoTransaction()
                 }
             }
-
-            Divider()
-
-            Text("Motion").font(.headline)
-            SliderRow(label: "Blur", value: edit.motionBlur, range: 0...2, suffix: "", defaultValue: EditSettings().motionBlur) {
-                var e = edit; e.motionBlur = $0; model.updateEditSettings(e)
-            } onCommit: {
-                var e = edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
-            } onBegin: { model.beginUndoTransaction() } onReset: {
-                var e = edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
-            }
-            Text("The editor uses a lightweight approximation; final export renders smoother, higher-quality motion blur.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -3452,6 +3440,13 @@ private struct PolishInspector: View {
                         .controlSize(.small)
                     }
                 }
+                WallpaperPickerGrid(
+                    wallpapers: wallpapers,
+                    isExpanded: $isWallpaperGridExpanded,
+                    selectedPath: path,
+                    loadingWallpaperID: loadingWallpaperID,
+                    onPick: applyWallpaper(_:)
+                )
                 if path.isEmpty {
                     Text("Choose a local image to use as an aspect-filled canvas background.")
                         .font(.caption2)
@@ -3550,6 +3545,27 @@ private struct PolishInspector: View {
         model.updateEditSettings(e, recordUndo: true)
     }
 
+    private func applyWallpaper(_ wallpaper: Wallpaper) {
+        guard loadingWallpaperID == nil else { return }
+        loadingWallpaperID = wallpaper.id
+        Task {
+            do {
+                let url = try await WallpaperImageStore.shared.localImageURL(for: wallpaper)
+                await MainActor.run {
+                    var e = edit
+                    e.background = .image(path: url.path)
+                    model.updateEditSettings(e, recordUndo: true)
+                    loadingWallpaperID = nil
+                }
+            } catch {
+                await MainActor.run {
+                    model.errorMessage = error.localizedDescription
+                    loadingWallpaperID = nil
+                }
+            }
+        }
+    }
+
     private func rgb(from color: Color) -> BackgroundStyle.RGB {
         let nsColor = NSColor(color).usingColorSpace(.sRGB) ?? .black
         return BackgroundStyle.RGB(
@@ -3569,6 +3585,134 @@ private struct PolishInspector: View {
             case .gradient: return "Gradient"
             case .image: return "Image"
             }
+        }
+    }
+}
+
+private struct WallpaperPickerGrid: View {
+    let wallpapers: [Wallpaper]
+    @Binding var isExpanded: Bool
+    let selectedPath: String
+    let loadingWallpaperID: String?
+    let onPick: (Wallpaper) -> Void
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 92), spacing: 8)
+    ]
+
+    var body: some View {
+        guard !wallpapers.isEmpty else {
+            return AnyView(EmptyView())
+        }
+
+        return AnyView(
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption.weight(.semibold))
+                        Text("Wallpapers")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+
+                if isExpanded {
+                    LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(wallpapers) { wallpaper in
+                            WallpaperCell(
+                                wallpaper: wallpaper,
+                                selected: isSelected(wallpaper),
+                                loading: loadingWallpaperID == wallpaper.id
+                            ) {
+                                onPick(wallpaper)
+                            }
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+        )
+    }
+
+    private func isSelected(_ wallpaper: Wallpaper) -> Bool {
+        URL(fileURLWithPath: selectedPath)
+            .deletingPathExtension()
+            .lastPathComponent == wallpaper.id
+    }
+}
+
+private struct WallpaperCell: View {
+    let wallpaper: Wallpaper
+    let selected: Bool
+    let loading: Bool
+    let action: () -> Void
+    @State private var thumbnail: NSImage?
+    @State private var thumbnailFailed = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 5) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+
+                    if let thumbnail {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                    } else if thumbnailFailed {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    if loading {
+                        ZStack {
+                            Color.black.opacity(0.22)
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                .frame(height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(selected ? Color.frAccent : Color.white.opacity(0.08), lineWidth: selected ? 2 : 1)
+                )
+
+                Text(wallpaper.name)
+                    .font(.caption2)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(loading)
+        .task(id: wallpaper.id) {
+            await loadThumbnail()
+        }
+    }
+
+    private func loadThumbnail() async {
+        thumbnailFailed = false
+        do {
+            let url = try await WallpaperImageStore.shared.localThumbnailURL(for: wallpaper)
+            guard !Task.isCancelled else { return }
+            thumbnail = NSImage(contentsOf: url)
+            thumbnailFailed = thumbnail == nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            thumbnailFailed = true
         }
     }
 }
@@ -4084,7 +4228,7 @@ private struct ExportInspector: View {
                 }
             }
 
-            SliderRow(label: "Bitrate", value: session.settings.bitrateMbps, range: 4...80, suffix: " Mbps", defaultValue: RecordingSettings().bitrateMbps) {
+            SliderRow(label: "Bitrate", value: session.settings.bitrateMbps, range: 4...100, suffix: " Mbps", defaultValue: RecordingSettings().bitrateMbps) {
                 var s = session.settings
                 s.bitrateMbps = $0
                 model.updateSessionSettings(s)
@@ -4115,6 +4259,22 @@ private struct ExportInspector: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+
+            Text("Motion").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+
+            SliderRow(label: "Blur", value: session.edit.motionBlur, range: 0...4, suffix: "", defaultValue: EditSettings().motionBlur) {
+                var e = session.edit; e.motionBlur = $0; model.updateEditSettings(e)
+            } onCommit: {
+                var e = session.edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
+            } onBegin: { model.beginUndoTransaction() } onReset: {
+                var e = session.edit; e.motionBlur = $0; model.updateEditSettings(e); model.endUndoTransaction()
+            }
+            Text("The editor uses a lightweight approximation; final export renders smoother, higher-quality motion blur.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 

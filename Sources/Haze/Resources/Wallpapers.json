@@ -1,0 +1,128 @@
+[
+  {
+    "id": "abstract-waves",
+    "name": "Abstract Waves",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "soft-gradient",
+    "name": "Soft Gradient",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "liquid-purple",
+    "name": "Liquid Purple",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1557672172-298e090bd0f1?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1557672172-298e090bd0f1?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "minimal-dunes",
+    "name": "Minimal Dunes",
+    "category": "nature",
+    "url": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "foggy-mountains",
+    "name": "Foggy Mountains",
+    "category": "nature",
+    "url": "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "ocean-cliff",
+    "name": "Ocean Cliff",
+    "category": "nature",
+    "url": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "aurora-sky",
+    "name": "Aurora Sky",
+    "category": "nature",
+    "url": "https://images.unsplash.com/photo-1483347756197-71ef80e95f73?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1483347756197-71ef80e95f73?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "glass-reflections",
+    "name": "Glass Reflections",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1511300636408-a63a89df3482?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1511300636408-a63a89df3482?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "gradient-flow",
+    "name": "Gradient Flow",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1663076118985-021752f33505?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1663076118985-021752f33505?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "pastel-waves",
+    "name": "Pastel Waves",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1663076123757-d8b3f1c7f1a1?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1663076123757-d8b3f1c7f1a1?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "moody-city",
+    "name": "Moody City",
+    "category": "urban",
+    "url": "https://images.unsplash.com/photo-1444927714506-8492d94b4e3d?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1444927714506-8492d94b4e3d?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "pink-sunset",
+    "name": "Pink Sunset",
+    "category": "nature",
+    "url": "https://images.unsplash.com/photo-1499289944739-7707f1ae6fbf?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1499289944739-7707f1ae6fbf?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "minimal-sky",
+    "name": "Minimal Sky",
+    "category": "minimal",
+    "url": "https://images.unsplash.com/photo-1620121684840-edffcfc4b878?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1620121684840-edffcfc4b878?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "dark-desert",
+    "name": "Dark Desert",
+    "category": "dark",
+    "url": "https://images.unsplash.com/photo-1549472579-e133f59d8b23?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1549472579-e133f59d8b23?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "soft-clouds",
+    "name": "Soft Clouds",
+    "category": "minimal",
+    "url": "https://images.unsplash.com/photo-1586515779592-d94f096e4c41?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1586515779592-d94f096e4c41?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "purple-abstract",
+    "name": "Purple Abstract",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1637611331620-51149c7ceb94?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1637611331620-51149c7ceb94?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "warm-landscape",
+    "name": "Warm Landscape",
+    "category": "nature",
+    "url": "https://images.unsplash.com/photo-1492573637402-25691cd9eac2?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1492573637402-25691cd9eac2?auto=format&fit=crop&w=420&q=80"
+  },
+  {
+    "id": "color-spectrum",
+    "name": "Color Spectrum",
+    "category": "abstract",
+    "url": "https://images.unsplash.com/photo-1579548122080-c35fd6820ecb?auto=format&fit=crop&w=2400&q=90",
+    "thumbnailURL": "https://images.unsplash.com/photo-1579548122080-c35fd6820ecb?auto=format&fit=crop&w=420&q=80"
+  }
+]

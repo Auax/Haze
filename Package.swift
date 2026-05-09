@@ -14,7 +14,8 @@ let package = Package(
         .executableTarget(
             name: "Haze",
             resources: [
-                .copy("Resources/Cursors")
+                .copy("Resources/Cursors"),
+                .copy("Resources/Wallpapers.json")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

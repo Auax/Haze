@@ -11,7 +11,7 @@ enum HazeDefaults {
         /// Initial capture mode when the app starts before the user picks display/window/region.
         static let captureKind: CaptureKind = .display
         /// Initial output size preset. `.native` keeps the captured source dimensions.
-        static let resolutionPreset: ResolutionPreset = .native
+        static let resolutionPreset: ResolutionPreset = .p2160
         /// Default video encoder target bitrate in megabits per second.
         static let bitrateMbps: Double = 60
         /// Default capture/export frame rate in frames per second.
@@ -29,9 +29,9 @@ enum HazeDefaults {
 
     enum Cursor {
         /// Cursor path smoothing strength. 0 is raw cursor data; 2 is very smooth.
-        static let smoothing: Double = 1.3
+        static let smoothing: Double = 1
         /// Seconds of neighboring cursor samples considered when smoothing cursor position.
-        static let smoothingWindow: Double = 0.34
+        static let smoothingWindow: Double = 0.12
         /// Cursor tilt amount during fast movement. 0 disables tilt; 2 is strongest.
         static let spring: Double = 2.0
         /// Rendered cursor alpha. 1 is fully opaque.
@@ -66,9 +66,9 @@ enum HazeDefaults {
         static let detectKeystrokes = true
 
         /// Seconds before a click where a generated click zoom starts easing in.
-        static let clickPreroll: Double = 1.6
+        static let clickPreroll: Double = 1.2
         /// Seconds after the last click where a generated click zoom begins settling out.
-        static let clickTrailing: Double = 2.35
+        static let clickTrailing: Double = 2.0
         /// Minimum total duration for generated click zoom blocks.
         static let clickMinimumDuration: Double = 3.2
         /// Explicit ease-in/ease-out duration for generated click zooms.

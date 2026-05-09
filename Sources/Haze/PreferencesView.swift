@@ -38,11 +38,11 @@ struct PreferencesView: View {
                             get: { store.preferences.defaultBitrateMbps },
                             set: { store.preferences.defaultBitrateMbps = $0.rounded() }
                         ),
-                        in: 4...80
+                        in: 4...100
                     )
                     Text("\(Int(store.preferences.defaultBitrateMbps)) Mbps")
                         .monospacedDigit()
-                        .frame(width: 64, alignment: .trailing)
+                        .frame(width: 72, alignment: .trailing)
                         .foregroundStyle(.secondary)
                 }
             }

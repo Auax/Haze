@@ -75,6 +75,7 @@ final class ExportRenderer: ObservableObject {
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
         input.expectsMediaDataInRealTime = false
+        input.performsMultiPassEncodingIfSupported = true
         input.mediaTimeScale = CMTimeScale(fps)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
@@ -1055,17 +1056,15 @@ final class PolishPipeline {
         let sx = videoSize.width / max(1, CGFloat(session.width))
         let sy = videoSize.height / max(1, CGFloat(session.height))
         let rawFrame = CGRect(x: 0, y: 0, width: session.width, height: session.height)
-        let resized = screen
-            .cropped(to: rawFrame)
-            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
-        let resizedCursor = cursorLayer?.transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+        let resized = Self.highQualityScale(screen.cropped(to: rawFrame), scaleX: sx, scaleY: sy)
+        let resizedCursor = cursorLayer.map { Self.highQualityScale($0, scaleX: sx, scaleY: sy) }
         if rendersVideoOnly {
             var layer = resized
             if let resizedCursor {
                 layer = resizedCursor.composited(over: layer)
             }
             if !transform.isIdentity {
-                layer = layer.transformed(by: transform.affine)
+                layer = Self.highQualityTransform(layer, transform: transform.affine)
             }
             return layer.cropped(to: CGRect(origin: .zero, size: canvasSize))
         }
@@ -1081,7 +1080,7 @@ final class PolishPipeline {
         framed = framed.transformed(by: CGAffineTransform(translationX: framedRect.minX,
                                                           y: framedRect.minY))
         if !transform.isIdentity {
-            framed = framed.transformed(by: transform.affine)
+            framed = Self.highQualityTransform(framed, transform: transform.affine)
         }
 
         var cursor: CIImage?
@@ -1089,7 +1088,7 @@ final class PolishPipeline {
             cursor = resizedCursor.transformed(by: CGAffineTransform(translationX: framedRect.minX,
                                                                      y: framedRect.minY))
             if !transform.isIdentity {
-                cursor = cursor?.transformed(by: transform.affine)
+                cursor = cursor.map { Self.highQualityTransform($0, transform: transform.affine) }
             }
         }
 
@@ -1101,7 +1100,7 @@ final class PolishPipeline {
                 y: framedRect.minY - shadowOffsetY
             ))
             if !transform.isIdentity {
-                shadow = shadow.transformed(by: transform.affine)
+                shadow = Self.highQualityTransform(shadow, transform: transform.affine)
             }
             output = shadow.composited(over: output)
         }
@@ -1110,6 +1109,32 @@ final class PolishPipeline {
             output = cursor.composited(over: output)
         }
         return output.cropped(to: CGRect(origin: .zero, size: canvasSize))
+    }
+
+    private static func highQualityTransform(_ image: CIImage, transform: CGAffineTransform) -> CIImage {
+        guard transform.b == 0,
+              transform.c == 0,
+              abs(transform.a - transform.d) < 0.000_001,
+              transform.a > 0
+        else {
+            return image.transformed(by: transform)
+        }
+        return highQualityScale(image, scaleX: transform.a, scaleY: transform.d)
+            .transformed(by: CGAffineTransform(translationX: transform.tx, y: transform.ty))
+    }
+
+    private static func highQualityScale(_ image: CIImage, scaleX: CGFloat, scaleY: CGFloat) -> CIImage {
+        guard scaleX > 0, scaleY > 0 else { return image }
+        guard abs(scaleX - scaleY) < 0.000_001 else {
+            return image.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        }
+        guard abs(scaleX - 1) > 0.000_001 else { return image }
+
+        let filter = CIFilter.lanczosScaleTransform()
+        filter.inputImage = image
+        filter.scale = Float(scaleX)
+        filter.aspectRatio = 1
+        return filter.outputImage ?? image.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
     }
 
     /// Composite a click ripple in source video coordinates (pre-framing).
