@@ -289,6 +289,7 @@ extension Notification.Name {
     static let hazeShowEditor = Notification.Name("Haze.showEditor")
     static let hazeHideRecorder = Notification.Name("Haze.hideRecorder")
     static let hazeShowRecorder = Notification.Name("Haze.showRecorder")
+    static let hazeCursorAssetFailed = Notification.Name("Haze.cursorAssetFailed")
 }
 
 @MainActor

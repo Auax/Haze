@@ -56,6 +56,14 @@ struct EditorView: View {
             }
         }
         .background(Color.frBackground)
+        .alert("Haze", isPresented: Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )) {
+            Button("OK") { model.errorMessage = nil }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
     }
 
     @ViewBuilder
@@ -284,6 +292,9 @@ struct EditorView: View {
             return true
         case .duplicateZoom:
             model.duplicateSelectedZoom()
+            return true
+        case .selectAllZooms:
+            model.selectAllZooms()
             return true
         case .c:
             model.centerSelectedZoomOnCursor()
@@ -1296,8 +1307,13 @@ private struct TimelinePanel: View {
                             filmstripSelected = false
                             model.selectZoom(id, extending: extending)
                         },
+                        deselectZooms: {
+                            filmstripSelected = false
+                            model.selectOnlyZoom(nil)
+                        },
                         onBegin: { model.beginUndoTransaction() },
                         onChange: { model.updateZoom($0) },
+                        onChangeMany: { model.updateZooms($0) },
                         onEnd: { model.endUndoTransaction() }
                     )
                 }
@@ -1796,8 +1812,10 @@ private struct ZoomTrack: View {
     @Binding var selectedZoomID: UUID?
     @Binding var selectedZoomIDs: Set<UUID>
     let selectZoom: (UUID, Bool) -> Void
+    let deselectZooms: () -> Void
     let onBegin: () -> Void
     let onChange: (ZoomKeyframe) -> Void
+    let onChangeMany: ([ZoomKeyframe]) -> Void
     let onEnd: () -> Void
 
     private static let coordinateName = "ZoomTrack.coordinateSpace"
@@ -1807,6 +1825,7 @@ private struct ZoomTrack: View {
             ForEach(zooms.filter { timeline.intersects(sourceStart: $0.start, sourceEnd: $0.start + $0.duration) }) { zoom in
                 ZoomBlock(
                     zoom: zoom,
+                    selectedZooms: selectedZoomsForDrag(anchor: zoom),
                     timeline: timeline,
                     playheadTime: playheadTime,
                     snapToPlayhead: snapToPlayhead,
@@ -1816,18 +1835,30 @@ private struct ZoomTrack: View {
                     select: { extending in selectZoom(zoom.id, extending) },
                     onBegin: onBegin,
                     onChange: onChange,
+                    onChangeMany: onChangeMany,
                     onEnd: onEnd
                 )
             }
         }
         .frame(width: timeline.width, height: height, alignment: .topLeading)
+        .background(
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { deselectZooms() }
+        )
         .clipped()
         .coordinateSpace(name: Self.coordinateName)
+    }
+
+    private func selectedZoomsForDrag(anchor: ZoomKeyframe) -> [ZoomKeyframe] {
+        guard selectedZoomIDs.contains(anchor.id), selectedZoomIDs.count > 1 else { return [] }
+        return zooms.filter { selectedZoomIDs.contains($0.id) }
     }
 }
 
 private struct ZoomBlock: View {
     let zoom: ZoomKeyframe
+    let selectedZooms: [ZoomKeyframe]
     let timeline: TimelineCoordinateMap
     let playheadTime: Double
     let snapToPlayhead: Bool
@@ -1837,9 +1868,11 @@ private struct ZoomBlock: View {
     let select: (Bool) -> Void
     let onBegin: () -> Void
     let onChange: (ZoomKeyframe) -> Void
+    let onChangeMany: ([ZoomKeyframe]) -> Void
     let onEnd: () -> Void
     @State private var dragKind: DragKind?
     @State private var origin: ZoomKeyframe?
+    @State private var groupOrigins: [ZoomKeyframe] = []
     @State private var dragStartX: Double = 0
     @State private var draft: ZoomKeyframe?
 
@@ -1962,9 +1995,12 @@ private struct ZoomBlock: View {
                     let kind = explicitKind ?? .body
                     dragKind = kind
                     origin = timelineEditableZoom(for: zoom, kind: kind)
+                    groupOrigins = kind == .body ? selectedZooms : []
                     dragStartX = Double(value.startLocation.x)
                     draft = origin
-                    select(selectionExtendsFromCurrentEvent())
+                    if groupOrigins.isEmpty {
+                        select(selectionExtendsFromCurrentEvent())
+                    }
                     onBegin()
                 }
                 guard let kind = dragKind, let origin else { return }
@@ -1981,6 +2017,12 @@ private struct ZoomBlock: View {
                 var updated = origin
                 switch kind {
                 case .body:
+                    if groupOrigins.count > 1 {
+                        let moved = movedGroupZooms(deltaTime: dt)
+                        draft = moved.first(where: { $0.id == zoom.id }) ?? origin
+                        onChangeMany(moved)
+                        return
+                    }
                     let maxStart = max(timeline.sourceStart, timeline.sourceEnd - origin.duration)
                     updated.start = min(max(timeline.sourceStart, origin.start + dt), maxStart)
                     updated = snappedBodyZoom(updated)
@@ -2014,12 +2056,36 @@ private struct ZoomBlock: View {
                 onChange(updated)
             }
             .onEnded { _ in
-                if let draft { onChange(draft) }
+                if groupOrigins.count <= 1, let draft { onChange(draft) }
                 onEnd()
                 dragKind = nil
                 origin = nil
+                groupOrigins = []
                 draft = nil
             }
+    }
+
+    private func movedGroupZooms(deltaTime: Double) -> [ZoomKeyframe] {
+        guard !groupOrigins.isEmpty else { return [] }
+        let minStart = groupOrigins.map(\.start).min() ?? timeline.sourceStart
+        let maxEnd = groupOrigins.map { $0.start + $0.duration }.max() ?? timeline.sourceEnd
+        var delta = min(max(deltaTime, timeline.sourceStart - minStart), timeline.sourceEnd - maxEnd)
+
+        let anchor = groupOrigins.first { $0.id == zoom.id } ?? zoom
+        let anchorStart = anchor.start + delta
+        let anchorEnd = anchor.start + anchor.duration + delta
+        if shouldSnap(anchorStart) {
+            delta += snapTime - anchorStart
+        } else if shouldSnap(anchorEnd) {
+            delta += snapTime - anchorEnd
+        }
+        delta = min(max(delta, timeline.sourceStart - minStart), timeline.sourceEnd - maxEnd)
+
+        return groupOrigins.map { original in
+            var moved = original
+            moved.start = original.start + delta
+            return moved
+        }
     }
 
     private func selectionExtendsFromCurrentEvent() -> Bool {
@@ -4254,7 +4320,7 @@ private func timecode(_ seconds: Double) -> String {
 
 struct KeyEventCatcher: NSViewRepresentable {
     enum Key {
-        case space, leftArrow, rightArrow, shiftLeft, shiftRight, home, end, f, z, s, c, duplicateZoom, delete, undo, redo, escape
+        case space, leftArrow, rightArrow, shiftLeft, shiftRight, home, end, f, z, s, c, duplicateZoom, selectAllZooms, delete, undo, redo, escape
     }
 
     let action: (Key) -> Bool
@@ -4311,6 +4377,8 @@ final class KeyCatcherView: NSView {
             default:
                 let dup = PreferencesStore.shared.preferences.duplicateZoomEditorHotkey
                 if dup.matchesKeyDown(event), handler(.duplicateZoom) { return nil }
+                let selectAll = PreferencesStore.shared.preferences.selectAllZoomsEditorHotkey
+                if selectAll.matchesKeyDown(event), handler(.selectAllZooms) { return nil }
                 if (cmd || control), chars.lowercased() == "z" {
                     if handler(shift ? .redo : .undo) { return nil }
                 }

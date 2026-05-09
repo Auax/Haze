@@ -19,6 +19,13 @@ rm -rf "$APP_DIR"
 mkdir -p "$BIN_DIR" "$RES_DIR"
 cp "$ROOT/.build/$CONFIG/Haze" "$BIN_DIR/Haze"
 
+# Copy SwiftPM resource bundles (cursor SVGs live in the generated Haze_Haze.bundle).
+# `.build/debug` is usually a symlink, and `find` does not descend symlinked roots by default.
+for bundle in "$ROOT/.build/$CONFIG"/Haze_*.bundle; do
+  [ -d "$bundle" ] || continue
+  cp -R "$bundle" "$RES_DIR/"
+done
+
 # Copy app icon if present
 if [ -f "$ROOT/Sources/Haze/Resources/AppIcon.icns" ]; then
   cp "$ROOT/Sources/Haze/Resources/AppIcon.icns" "$RES_DIR/AppIcon.icns"

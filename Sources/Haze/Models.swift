@@ -115,37 +115,37 @@ struct AudioInputDevice: Identifiable, Hashable {
 }
 
 struct RecordingSettings: Codable {
-    var captureKind: CaptureKind = .display
-    var resolutionPreset: ResolutionPreset = .native
-    var bitrateMbps: Double = 60
-    var frameRate: Int = 60
-    var region: CGRect = CGRect(x: 120, y: 120, width: 1280, height: 720)
+    var captureKind: CaptureKind = HazeDefaults.Recording.captureKind
+    var resolutionPreset: ResolutionPreset = HazeDefaults.Recording.resolutionPreset
+    var bitrateMbps: Double = HazeDefaults.Recording.bitrateMbps
+    var frameRate: Int = HazeDefaults.Recording.frameRate
+    var region: CGRect = HazeDefaults.Recording.region
     /// Cursor smoothing strength. 0 = raw, 2 = very smooth.
-    var cursorSmoothing: Double = 1.3
+    var cursorSmoothing: Double = HazeDefaults.Cursor.smoothing
     /// Half-window (in seconds) used to weight neighboring cursor samples for smoothing.
-    var cursorSmoothingWindow: Double = 0.34
+    var cursorSmoothingWindow: Double = HazeDefaults.Cursor.smoothingWindow
     /// Hotspot-anchored cursor tilt from fast movement. 0 = off, 2 = strongest.
-    var cursorSpring: Double = 2.0
+    var cursorSpring: Double = HazeDefaults.Cursor.spring
     /// Render-time cursor opacity 0...1.
-    var cursorOpacity: Double = 1.0
+    var cursorOpacity: Double = HazeDefaults.Cursor.opacity
     /// If true, cursor pulses (grows briefly) on each click.
-    var cursorClickPulse: Bool = true
+    var cursorClickPulse: Bool = HazeDefaults.Cursor.clickPulse
     /// Strength of the click pulse 0...1.
-    var cursorClickPulseStrength: Double = 0.55
-    var cursorScale: Double = 2.5
-    var cursorSprite: CursorSprite = .system
-    var recordMicrophone: Bool = false
-    var microphoneDeviceID: String? = nil
-    var recordSystemAudio: Bool = false
+    var cursorClickPulseStrength: Double = HazeDefaults.Cursor.clickPulseStrength
+    var cursorScale: Double = HazeDefaults.Cursor.scale
+    var cursorSprite: CursorSprite = HazeDefaults.Cursor.sprite
+    var recordMicrophone: Bool = HazeDefaults.Recording.recordMicrophone
+    var microphoneDeviceID: String? = HazeDefaults.Recording.microphoneDeviceID
+    var recordSystemAudio: Bool = HazeDefaults.Recording.recordSystemAudio
     /// Path to a user-supplied image used when `cursorSprite == .custom`.
-    var customCursorPath: String? = nil
+    var customCursorPath: String? = HazeDefaults.Cursor.customPath
     /// Hotspot inside the custom cursor as fractions of its size (0,0 = upper-left).
-    var customCursorHotspotX: Double = 0.5
-    var customCursorHotspotY: Double = 0.5
-    var automaticZooms: Bool = true
-    var automaticZoomScale: Double = 1.4
-    var detectClicks: Bool = true
-    var detectKeystrokes: Bool = true
+    var customCursorHotspotX: Double = HazeDefaults.Cursor.customHotspotX
+    var customCursorHotspotY: Double = HazeDefaults.Cursor.customHotspotY
+    var automaticZooms: Bool = HazeDefaults.AutoZoom.enabled
+    var automaticZoomScale: Double = HazeDefaults.AutoZoom.scale
+    var detectClicks: Bool = HazeDefaults.AutoZoom.detectClicks
+    var detectKeystrokes: Bool = HazeDefaults.AutoZoom.detectKeystrokes
 
     enum CodingKeys: String, CodingKey {
         case captureKind, resolutionPreset, bitrateMbps, frameRate, region, cursorSmoothing, cursorScale, cursorSprite
@@ -254,21 +254,21 @@ enum ZoomEasing: String, Codable, CaseIterable, Identifiable {
     /// Approximate fraction of duration consumed by the ease-in/out ramp.
     var rampFraction: Double {
         switch self {
-        case .snappy: return 0.18
-        case .smooth: return 0.30
-        case .gentle: return 0.42
-        case .custom: return 0.30
+        case .snappy: return HazeDefaults.Easing.snappyRampFraction
+        case .smooth: return HazeDefaults.Easing.smoothRampFraction
+        case .gentle: return HazeDefaults.Easing.gentleRampFraction
+        case .custom: return HazeDefaults.Easing.customRampFraction
         }
     }
 
     var curve: CubicBezier {
         switch self {
         case .snappy:
-            return CubicBezier(x1: 0.18, y1: 0.94, x2: 0.24, y2: 1.0)
+            return HazeDefaults.Easing.snappyCurve
         case .smooth:
-            return CubicBezier(x1: 0.33, y1: 0.0, x2: 0.20, y2: 1.0)
+            return HazeDefaults.Easing.smoothCurve
         case .gentle:
-            return CubicBezier(x1: 0.45, y1: 0.0, x2: 0.35, y2: 1.0)
+            return HazeDefaults.Easing.gentleCurve
         case .custom:
             return .smooth
         }
@@ -295,7 +295,7 @@ struct CubicBezier: Codable, Hashable, Equatable {
     var x2: Double
     var y2: Double
 
-    static let smooth = CubicBezier(x1: 0.33, y1: 0.0, x2: 0.20, y2: 1.0)
+    static let smooth = HazeDefaults.Easing.smoothCurve
 
     func clamped() -> CubicBezier {
         CubicBezier(
@@ -354,8 +354,8 @@ struct CubicBezier: Codable, Hashable, Equatable {
 }
 
 struct ZoomKeyframe: Codable, Identifiable, Hashable {
-    static let defaultFollowCursorSmoothing = 1.5
-    static let defaultFollowCursorDelay = 0.2
+    static let defaultFollowCursorSmoothing = HazeDefaults.ZoomFollow.smoothing
+    static let defaultFollowCursorDelay = HazeDefaults.ZoomFollow.delay
 
     var id = UUID()
     var start: Double
@@ -375,11 +375,11 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
     /// Intentional camera lag in seconds while the zoom center follows the cursor.
     var followCursorDelay: Double = Self.defaultFollowCursorDelay
     /// Fraction of the zoomed viewport where the cursor can move before the cinematic camera follows.
-    var followCursorDeadZoneWidth: Double = 0.35
-    var followCursorDeadZoneHeight: Double = 0.30
+    var followCursorDeadZoneWidth: Double = HazeDefaults.ZoomFollow.deadZoneWidth
+    var followCursorDeadZoneHeight: Double = HazeDefaults.ZoomFollow.deadZoneHeight
     /// Viewport anchor used by centered cursor follow. 0.5,0.5 keeps the cursor visually centered.
-    var followCursorAnchorX: Double = 0.5
-    var followCursorAnchorY: Double = 0.5
+    var followCursorAnchorX: Double = HazeDefaults.ZoomFollow.anchorX
+    var followCursorAnchorY: Double = HazeDefaults.ZoomFollow.anchorY
 
     enum CodingKeys: String, CodingKey {
         case id, start, duration, scale, centerX, centerY, easing, rampFraction, zoomInDuration, zoomOutDuration, bezier
@@ -403,10 +403,10 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         followCursorStyle: CursorFollowStyle = .cinematic,
         followCursorSmoothing: Double = ZoomKeyframe.defaultFollowCursorSmoothing,
         followCursorDelay: Double = ZoomKeyframe.defaultFollowCursorDelay,
-        followCursorDeadZoneWidth: Double = 0.35,
-        followCursorDeadZoneHeight: Double = 0.30,
-        followCursorAnchorX: Double = 0.5,
-        followCursorAnchorY: Double = 0.5
+        followCursorDeadZoneWidth: Double = HazeDefaults.ZoomFollow.deadZoneWidth,
+        followCursorDeadZoneHeight: Double = HazeDefaults.ZoomFollow.deadZoneHeight,
+        followCursorAnchorX: Double = HazeDefaults.ZoomFollow.anchorX,
+        followCursorAnchorY: Double = HazeDefaults.ZoomFollow.anchorY
     ) {
         self.id = id
         self.start = start
@@ -448,10 +448,10 @@ struct ZoomKeyframe: Codable, Identifiable, Hashable {
         followCursorStyle = try container.decodeIfPresent(CursorFollowStyle.self, forKey: .followCursorStyle) ?? .cinematic
         followCursorSmoothing = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorSmoothing) ?? Self.defaultFollowCursorSmoothing, 0), 2)
         followCursorDelay = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDelay) ?? Self.defaultFollowCursorDelay, 0), 0.8)
-        followCursorDeadZoneWidth = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneWidth) ?? 0.35, 0.08), 0.92)
-        followCursorDeadZoneHeight = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneHeight) ?? 0.30, 0.08), 0.92)
-        followCursorAnchorX = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorX) ?? 0.5, 0.12), 0.88)
-        followCursorAnchorY = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorY) ?? 0.5, 0.12), 0.88)
+        followCursorDeadZoneWidth = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneWidth) ?? HazeDefaults.ZoomFollow.deadZoneWidth, 0.08), 0.92)
+        followCursorDeadZoneHeight = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorDeadZoneHeight) ?? HazeDefaults.ZoomFollow.deadZoneHeight, 0.08), 0.92)
+        followCursorAnchorX = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorX) ?? HazeDefaults.ZoomFollow.anchorX, 0.12), 0.88)
+        followCursorAnchorY = min(max(try container.decodeIfPresent(Double.self, forKey: .followCursorAnchorY) ?? HazeDefaults.ZoomFollow.anchorY, 0.12), 0.88)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -524,26 +524,23 @@ enum BackgroundImageFit: String, Codable, CaseIterable, Identifiable {
 }
 
 struct EditSettings: Codable, Equatable {
-    var background: BackgroundStyle = .gradient(
-        top:    BackgroundStyle.RGB(red: 0.18, green: 0.19, blue: 0.22),
-        bottom: BackgroundStyle.RGB(red: 0.08, green: 0.09, blue: 0.11)
-    )
+    var background: BackgroundStyle = HazeDefaults.Edit.background
     /// Padding as a fraction of the smaller output dimension (0...0.18).
-    var padding: Double = 0.05
+    var padding: Double = HazeDefaults.Edit.padding
     /// Corner radius as a fraction of the smaller output dimension (0...0.08).
-    var cornerRadius: Double = 0.018
+    var cornerRadius: Double = HazeDefaults.Edit.cornerRadius
     /// Shadow strength 0...1.
-    var shadow: Double = 0.55
-    var showCursor: Bool = true
-    var showClickRipples: Bool = true
+    var shadow: Double = HazeDefaults.Edit.shadow
+    var showCursor: Bool = HazeDefaults.Edit.showCursor
+    var showClickRipples: Bool = HazeDefaults.Edit.showClickRipples
     /// Strength of zoom/frame motion blur. 0 disables the effect.
-    var motionBlur: Double = 0
+    var motionBlur: Double = HazeDefaults.Edit.motionBlur
     /// How the image background fits into the canvas (fill or fit). Only used for `.image` style.
-    var imageFit: BackgroundImageFit = .fill
+    var imageFit: BackgroundImageFit = HazeDefaults.Edit.imageFit
     /// Horizontal focal point (0 = left, 0.5 = center, 1 = right) for cropping/positioning the image.
-    var imageFocusX: Double = 0.5
+    var imageFocusX: Double = HazeDefaults.Edit.imageFocusX
     /// Vertical focal point (0 = top, 0.5 = center, 1 = bottom) for cropping/positioning the image.
-    var imageFocusY: Double = 0.5
+    var imageFocusY: Double = HazeDefaults.Edit.imageFocusY
 
     enum CodingKeys: String, CodingKey {
         case background, padding, cornerRadius, shadow, showCursor, showClickRipples, motionBlur,
@@ -702,11 +699,14 @@ func zoomAnimationTimings(for zoom: ZoomKeyframe) -> (zoomIn: Double, zoomOut: D
 
 func cinematicZoomCameraCenter(for zoom: ZoomKeyframe, at time: Double, session: RecordingSession) -> CGPoint {
     guard zoom.followCursor else {
+        // Non-follow zooms should travel in a straight visual line toward one fixed focal point.
+        // Clamping against the current animated scale changes the target over time near edges,
+        // which makes the path bend. Clamp once at full zoom and let the transform ease to it.
         return clampedCameraCenter(
             CGPoint(x: zoom.centerX, y: zoom.centerY),
             screenWidth: Double(session.width),
             screenHeight: Double(session.height),
-            zoomScale: zoomScale(for: zoom, at: time)
+            zoomScale: max(1, zoom.scale)
         )
     }
 

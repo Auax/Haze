@@ -40,6 +40,13 @@ final class AppViewModel: ObservableObject {
         renderer.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .hazeCursorAssetFailed)
+            .compactMap { $0.userInfo?["message"] as? String }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] message in
+                self?.errorMessage = message
+            }
+            .store(in: &cancellables)
         PreferencesStore.shared.applyDefaults(to: &settings)
         loadLibrary()
         installGlobalToggleRecordMonitor()
@@ -101,11 +108,14 @@ final class AppViewModel: ObservableObject {
         var updated = session
         let timelineStart = session.timelineContentStart
         let timelineEnd = max(timelineStart + 0.6, session.timelineContentEnd)
-        let zoomDuration = min(3.5, max(0.6, timelineEnd - timelineStart))
+        let zoomDuration = min(
+            HazeDefaults.NewEditorZoom.maximumDuration,
+            max(HazeDefaults.NewEditorZoom.minimumDuration, timelineEnd - timelineStart)
+        )
         let cursor = nearestCursor(in: session, at: playbackTime)
             ?? CursorSample(time: playbackTime, x: Double(session.width) / 2, y: Double(session.height) / 2)
         let zoom = ZoomKeyframe(
-            start: min(max(timelineStart, playbackTime - 0.45), max(timelineStart, timelineEnd - zoomDuration)),
+            start: min(max(timelineStart, playbackTime - HazeDefaults.NewEditorZoom.preroll), max(timelineStart, timelineEnd - zoomDuration)),
             duration: zoomDuration,
             scale: max(1.05, settings.automaticZoomScale),
             centerX: cursor.x,
@@ -163,6 +173,50 @@ final class AppViewModel: ObservableObject {
         applySession(updated)
         selectedZoomID = normalized.id
         selectedZoomIDs.insert(normalized.id)
+    }
+
+    func updateZooms(_ zooms: [ZoomKeyframe], recordUndo: Bool = false) {
+        guard let session = currentSession, !zooms.isEmpty else { return }
+        if recordUndo, !undoTransactionIsOpen { pushUndo(session) }
+        var updated = session
+        let duration = max(1, updated.approximateDuration)
+        for incoming in zooms {
+            guard let index = updated.zooms.firstIndex(where: { $0.id == incoming.id }) else { continue }
+            updated.zooms[index] = normalizedZoom(incoming, timelineDuration: duration, width: updated.width, height: updated.height)
+        }
+        updated.zooms.sort { $0.start < $1.start }
+        applySession(updated)
+        if let selectedZoomID, zooms.contains(where: { $0.id == selectedZoomID }) {
+            self.selectedZoomID = selectedZoomID
+        } else if let id = zooms.last?.id {
+            selectedZoomID = id
+        }
+        selectedZoomIDs.formUnion(zooms.map(\.id))
+    }
+
+    private func normalizedZoom(_ input: ZoomKeyframe, timelineDuration duration: Double, width: Int, height: Int) -> ZoomKeyframe {
+        var zoom = input
+        zoom.duration = min(max(0.6, zoom.duration), max(0.6, duration))
+        zoom.start = min(max(0, zoom.start), max(0, duration - zoom.duration))
+        zoom.scale = min(max(1, zoom.scale), 3)
+        zoom.centerX = min(max(0, zoom.centerX), Double(width))
+        zoom.centerY = min(max(0, zoom.centerY), Double(height))
+        zoom.rampFraction = min(max(0.04, zoom.rampFraction), 0.48)
+        zoom.zoomInDuration = min(max(0.08, zoom.zoomInDuration), zoom.duration)
+        zoom.zoomOutDuration = min(max(0.08, zoom.zoomOutDuration), zoom.duration)
+        if zoom.zoomInDuration + zoom.zoomOutDuration > zoom.duration {
+            let factor = zoom.duration / max(0.001, zoom.zoomInDuration + zoom.zoomOutDuration)
+            zoom.zoomInDuration *= factor
+            zoom.zoomOutDuration *= factor
+        }
+        zoom.bezier = zoom.bezier.clamped()
+        zoom.followCursorSmoothing = min(max(0, zoom.followCursorSmoothing), 2)
+        zoom.followCursorDelay = min(max(0, zoom.followCursorDelay), 0.8)
+        zoom.followCursorDeadZoneWidth = min(max(0.08, zoom.followCursorDeadZoneWidth), 0.92)
+        zoom.followCursorDeadZoneHeight = min(max(0.08, zoom.followCursorDeadZoneHeight), 0.92)
+        zoom.followCursorAnchorX = min(max(0.12, zoom.followCursorAnchorX), 0.88)
+        zoom.followCursorAnchorY = min(max(0.12, zoom.followCursorAnchorY), 0.88)
+        return zoom
     }
 
     func splitZoomAtPlayhead() {
@@ -368,6 +422,12 @@ final class AppViewModel: ObservableObject {
     func selectOnlyZoom(_ id: UUID?) {
         selectedZoomID = id
         selectedZoomIDs = id.map { [$0] } ?? []
+    }
+
+    func selectAllZooms() {
+        guard let session = currentSession else { return }
+        selectedZoomIDs = Set(session.zooms.map(\.id))
+        selectedZoomID = session.zooms.last?.id
     }
 
     func toggleZoomSelection(_ id: UUID) {

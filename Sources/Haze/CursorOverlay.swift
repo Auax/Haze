@@ -41,9 +41,10 @@ final class CursorOverlay {
         let customHY: Int
     }
 
-    private var images: [CursorSprite: CIImage] = [:]
     private var customImages: [CustomKey: CIImage] = [:]
     private var spriteRenderCache: [SpriteCacheKey: CursorSpriteRender] = [:]
+    private var reportedFailures = Set<String>()
+    private let reportedFailuresLock = NSLock()
     private let renderContext = CIContext(options: [.workingColorSpace: NSNull()])
 
     private init() {}
@@ -141,7 +142,13 @@ final class CursorOverlay {
         shape: CursorShape
     ) -> CursorSpriteAsset? {
         if sprite == .system {
-            guard let image = LionCursorAssets.shared.image(for: shape) else { return nil }
+            guard let image = LionCursorAssets.shared.image(for: shape) else {
+                reportCursorAssetFailure(
+                    id: "system-\(shape.assetName)",
+                    message: "Haze could not load the bundled cursor asset '\(shape.assetName).svg'. The cursor will be hidden until the cursor resources are bundled correctly."
+                )
+                return nil
+            }
             let pixelSize = LionCursorAssets.shared.pixelSize(for: shape)
             // Display each cursor at a uniform on-screen height so different shapes feel
             // consistent despite different SVG viewBox dimensions.
@@ -158,7 +165,13 @@ final class CursorOverlay {
         }
 
         if sprite == .custom {
-            guard let image = customImage(path: settings.customCursorPath) else { return nil }
+            guard let image = customImage(path: settings.customCursorPath) else {
+                reportCursorAssetFailure(
+                    id: "custom-\(settings.customCursorPath ?? "missing")",
+                    message: "Haze could not load the selected custom cursor image. Choose a valid PNG or switch the cursor sprite back to System."
+                )
+                return nil
+            }
             let displayHeight: CGFloat = 36 * scale
             let sourceH = max(1, image.extent.height)
             let displayScale = displayHeight / sourceH
@@ -172,11 +185,25 @@ final class CursorOverlay {
         }
 
         // Procedural sprites (legacy, no longer surfaced in the picker).
-        guard let image = self.image(for: sprite, settings: settings) else { return nil }
-        let hotSpot = self.hotSpot(for: sprite, settings: settings, image: image)
-        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let scaledHotSpot = CGPoint(x: hotSpot.x * scale, y: hotSpot.y * scale)
-        return CursorSpriteAsset(image: scaled, hotspotCI: scaledHotSpot)
+        reportCursorAssetFailure(
+            id: "unsupported-\(sprite.rawValue)",
+            message: "Haze no longer supports the legacy '\(sprite.label)' procedural cursor. Switch the cursor sprite to System or choose a custom image."
+        )
+        return nil
+    }
+
+    private func reportCursorAssetFailure(id: String, message: String) {
+        reportedFailuresLock.lock()
+        let shouldReport = reportedFailures.insert(id).inserted
+        reportedFailuresLock.unlock()
+        guard shouldReport else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .hazeCursorAssetFailed,
+                object: nil,
+                userInfo: ["message": message]
+            )
+        }
     }
 
     private func applySpringRotation(to image: CIImage, screenRotation: CGFloat, pivot: CGPoint) -> CIImage {
@@ -209,27 +236,6 @@ final class CursorOverlay {
         return matrix.outputImage ?? image
     }
 
-    private func image(for sprite: CursorSprite, settings: RecordingSettings) -> CIImage? {
-        switch sprite {
-        case .arrow, .dot, .ring, .spotlight:
-            if let image = images[sprite] { return image }
-            let image: CIImage
-            switch sprite {
-            case .arrow:    image = makeArrowImage()
-            case .dot:      image = makeDotImage()
-            case .ring:     image = makeRingImage()
-            case .spotlight: image = makeSpotlightImage()
-            case .custom, .system: return nil
-            }
-            images[sprite] = image
-            return image
-        case .custom:
-            return customImage(path: settings.customCursorPath)
-        case .system:
-            return nil
-        }
-    }
-
     private func customImage(path: String?) -> CIImage? {
         guard let path, !path.isEmpty else { return nil }
         let url = URL(fileURLWithPath: path)
@@ -247,137 +253,6 @@ final class CursorOverlay {
         let ciImage = CIImage(cgImage: cg)
         customImages[key] = ciImage
         return ciImage
-    }
-
-    private func hotSpot(for sprite: CursorSprite, settings: RecordingSettings, image: CIImage) -> CGPoint {
-        switch sprite {
-        case .arrow:
-            return CGPoint(x: 8, y: 52)
-        case .dot, .ring, .spotlight:
-            return CGPoint(x: 24, y: 24)
-        case .custom:
-            let hx = min(max(settings.customCursorHotspotX, 0), 1)
-            let hy = min(max(settings.customCursorHotspotY, 0), 1)
-            return CGPoint(x: image.extent.width * hx, y: image.extent.height * hy)
-        case .system:
-            return CGPoint(x: image.extent.width * 0.08, y: image.extent.height * 0.08)
-        }
-    }
-
-    private func makeArrowImage() -> CIImage {
-        let size = CGSize(width: 44, height: 58)
-        let imageRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: imageRep)
-
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
-        shadow.shadowBlurRadius = 4
-        shadow.shadowOffset = CGSize(width: 0, height: -2)
-        shadow.set()
-
-        let pointer = NSBezierPath()
-        pointer.move(to: CGPoint(x: 8, y: 52))
-        pointer.line(to: CGPoint(x: 8, y: 6))
-        pointer.line(to: CGPoint(x: 38, y: 36))
-        pointer.line(to: CGPoint(x: 23, y: 38))
-        pointer.line(to: CGPoint(x: 31, y: 55))
-        pointer.line(to: CGPoint(x: 22, y: 58))
-        pointer.line(to: CGPoint(x: 15, y: 41))
-        pointer.close()
-
-        NSColor.white.setFill()
-        pointer.fill()
-        NSColor.black.withAlphaComponent(0.75).setStroke()
-        pointer.lineWidth = 1.5
-        pointer.stroke()
-
-        NSGraphicsContext.restoreGraphicsState()
-
-        let cgImage = imageRep.cgImage!
-        return CIImage(cgImage: cgImage).transformed(by: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: size.height))
-    }
-
-    private func makeDotImage() -> CIImage {
-        drawCursorImage(size: CGSize(width: 48, height: 48)) { rect in
-            NSColor.black.withAlphaComponent(0.45).setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 12, dy: 10).offsetBy(dx: 0, dy: -2)).fill()
-            NSColor.white.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 14, dy: 14)).fill()
-            NSColor.black.withAlphaComponent(0.7).setStroke()
-            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 14, dy: 14))
-            ring.lineWidth = 1.5
-            ring.stroke()
-        }
-    }
-
-    private func makeRingImage() -> CIImage {
-        drawCursorImage(size: CGSize(width: 48, height: 48)) { rect in
-            NSColor.black.withAlphaComponent(0.35).setStroke()
-            let shadow = NSBezierPath(ovalIn: rect.insetBy(dx: 8, dy: 8).offsetBy(dx: 0, dy: -1))
-            shadow.lineWidth = 7
-            shadow.stroke()
-
-            NSColor.white.setStroke()
-            let outer = NSBezierPath(ovalIn: rect.insetBy(dx: 8, dy: 8))
-            outer.lineWidth = 4
-            outer.stroke()
-
-            NSColor.systemBlue.withAlphaComponent(0.9).setStroke()
-            let accent = NSBezierPath(ovalIn: rect.insetBy(dx: 13, dy: 13))
-            accent.lineWidth = 2
-            accent.stroke()
-        }
-    }
-
-    private func makeSpotlightImage() -> CIImage {
-        drawCursorImage(size: CGSize(width: 48, height: 48)) { rect in
-            NSColor.systemYellow.withAlphaComponent(0.28).setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2)).fill()
-            NSColor.white.withAlphaComponent(0.95).setStroke()
-            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 5, dy: 5))
-            ring.lineWidth = 2
-            ring.stroke()
-            NSColor.white.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 20, dy: 20)).fill()
-        }
-    }
-
-    private func drawCursorImage(size: CGSize, draw: (NSRect) -> Void) -> CIImage {
-        let imageRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )!
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: imageRep)
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-        draw(NSRect(origin: .zero, size: size))
-        NSGraphicsContext.restoreGraphicsState()
-        return CIImage(cgImage: imageRep.cgImage!)
-            .transformed(by: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: size.height))
     }
 }
 
@@ -534,7 +409,8 @@ final class LionCursorAssets {
     }
 
     private func assetURL(for shape: CursorShape) -> URL? {
-        Bundle.main.url(forResource: shape.assetName, withExtension: "svg", subdirectory: "Cursors")
+        Bundle.module.url(forResource: shape.assetName, withExtension: "svg", subdirectory: "Cursors")
+            ?? Bundle.main.url(forResource: shape.assetName, withExtension: "svg", subdirectory: "Cursors")
     }
 
     private func rasterizedCGImage(from image: NSImage) -> CGImage? {
@@ -568,17 +444,31 @@ final class LionCursorAssets {
     }
 }
 
-/// Returns the cursor shape that was active at the given time during recording. Walks the
-/// (transition-only) sample list and returns the most recent shape at-or-before `time`.
-func cursorShape(at time: Double, samples: [CursorShapeSample]) -> CursorShape {
+/// Returns the cursor shape that was active at the given time during recording.
+/// The sample list stores transitions only. Very short cursor-shape segments are ignored so
+/// transient hovers do not flash as distracting cursor changes in the rendered video.
+func cursorShape(
+    at time: Double,
+    samples: [CursorShapeSample],
+    minimumDuration: Double = HazeDefaults.Cursor.shapeChangeMinimumDuration
+) -> CursorShape {
     guard !samples.isEmpty else { return .default }
-    var current: CursorShape = samples.first?.shape ?? .default
-    for sample in samples {
-        if sample.time <= time {
-            current = sample.shape
-        } else {
-            break
+    let sorted = samples.sorted { $0.time < $1.time }
+    let threshold = max(0, minimumDuration)
+    var stableShape = sorted.first?.shape ?? .default
+
+    for index in sorted.indices {
+        let sample = sorted[index]
+        guard sample.time <= time else { break }
+        let nextTime = index + 1 < sorted.count ? sorted[index + 1].time : nil
+        let segmentEnd = nextTime ?? time
+        let segmentDuration = max(0, segmentEnd - sample.time)
+        let isCurrentOpenSegment = nextTime == nil
+
+        if segmentDuration >= threshold || (isCurrentOpenSegment && time - sample.time >= threshold) {
+            stableShape = sample.shape
         }
     }
-    return current
+
+    return stableShape
 }

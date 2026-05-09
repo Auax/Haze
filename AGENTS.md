@@ -27,6 +27,7 @@ Build a lightweight native macOS recorder that improves on default macOS screen 
 ## Important Files
 
 - `Package.swift`: SwiftPM package definition.
+- `docs/APP_STRUCTURE.md`: detailed file-by-file map of app ownership for humans and agents.
 - `Sources/Haze/HazeApp.swift`: app entry point.
 - `Sources/Haze/ContentView.swift`: main UI, preview, zoom timeline editor.
 - `Sources/Haze/CaptureEngine.swift`: ScreenCaptureKit recording, permission checks, source discovery, raw recording, cursor sampling, auto zoom generation.

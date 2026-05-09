@@ -122,6 +122,11 @@ struct PreferencesView: View {
                     binding: $store.preferences.duplicateZoomEditorHotkey,
                     fallback: .duplicateZoomEditorDefault
                 )
+                hotkeyRow(
+                    label: "Select all zooms",
+                    binding: $store.preferences.selectAllZoomsEditorHotkey,
+                    fallback: .selectAllZoomsEditorDefault
+                )
             }
             Section("Editor shortcuts (not reassignable here)") {
                 editorShortcutRow("Play / pause", "Space")

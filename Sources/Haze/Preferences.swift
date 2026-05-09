@@ -43,10 +43,24 @@ struct HotkeyBinding: Codable, Hashable {
         return table[keyCode] ?? "Key \(keyCode)"
     }
 
-    static let markZoomDefault = HotkeyBinding(keyCode: 6, modifiers: [.control, .option])
-    static let toggleRecordDefault = HotkeyBinding(keyCode: 15, modifiers: [.control, .option])
+    static let markZoomDefault = HotkeyBinding(
+        keyCode: HazeDefaults.Hotkeys.markZoomKeyCode,
+        modifiers: HazeDefaults.Hotkeys.markZoomModifiers
+    )
+    static let toggleRecordDefault = HotkeyBinding(
+        keyCode: HazeDefaults.Hotkeys.toggleRecordKeyCode,
+        modifiers: HazeDefaults.Hotkeys.toggleRecordModifiers
+    )
     /// Default ⌃D — keyCode 2 is ANSI D on US keyboards.
-    static let duplicateZoomEditorDefault = HotkeyBinding(keyCode: 2, modifiers: [.control])
+    static let duplicateZoomEditorDefault = HotkeyBinding(
+        keyCode: HazeDefaults.Hotkeys.duplicateZoomEditorKeyCode,
+        modifiers: HazeDefaults.Hotkeys.duplicateZoomEditorModifiers
+    )
+    /// Default ⌘A — keyCode 0 is ANSI A on US keyboards.
+    static let selectAllZoomsEditorDefault = HotkeyBinding(
+        keyCode: HazeDefaults.Hotkeys.selectAllZoomsEditorKeyCode,
+        modifiers: HazeDefaults.Hotkeys.selectAllZoomsEditorModifiers
+    )
 
     /// True when this binding matches a key-down event (device-independent modifier flags).
     func matchesKeyDown(_ event: NSEvent) -> Bool {
@@ -59,27 +73,28 @@ struct HotkeyBinding: Codable, Hashable {
 }
 
 struct AppPreferences: Codable {
-    var defaultResolutionPreset: ResolutionPreset = .native
-    var defaultFrameRate: Int = 60
-    var defaultBitrateMbps: Double = 60
-    var defaultRecordSystemAudio: Bool = false
-    var defaultRecordMicrophone: Bool = false
+    var defaultResolutionPreset: ResolutionPreset = HazeDefaults.Recording.resolutionPreset
+    var defaultFrameRate: Int = HazeDefaults.Recording.frameRate
+    var defaultBitrateMbps: Double = HazeDefaults.Recording.bitrateMbps
+    var defaultRecordSystemAudio: Bool = HazeDefaults.Recording.recordSystemAudio
+    var defaultRecordMicrophone: Bool = HazeDefaults.Recording.recordMicrophone
 
-    var defaultAutomaticZooms: Bool = true
-    var defaultAutomaticZoomScale: Double = 1.4
-    var defaultCursorScale: Double = 2.5
-    var defaultCursorSmoothing: Double = 1.3
-    var defaultCursorSpring: Double = 2.0
-    var defaultDetectClicks: Bool = true
-    var defaultDetectKeystrokes: Bool = true
-    var defaultCursorClickPulse: Bool = true
+    var defaultAutomaticZooms: Bool = HazeDefaults.AutoZoom.enabled
+    var defaultAutomaticZoomScale: Double = HazeDefaults.AutoZoom.scale
+    var defaultCursorScale: Double = HazeDefaults.Cursor.scale
+    var defaultCursorSmoothing: Double = HazeDefaults.Cursor.smoothing
+    var defaultCursorSpring: Double = HazeDefaults.Cursor.spring
+    var defaultDetectClicks: Bool = HazeDefaults.AutoZoom.detectClicks
+    var defaultDetectKeystrokes: Bool = HazeDefaults.AutoZoom.detectKeystrokes
+    var defaultCursorClickPulse: Bool = HazeDefaults.Cursor.clickPulse
 
     var markZoomHotkey: HotkeyBinding = .markZoomDefault
     var toggleRecordHotkey: HotkeyBinding = .toggleRecordDefault
     var duplicateZoomEditorHotkey: HotkeyBinding = .duplicateZoomEditorDefault
+    var selectAllZoomsEditorHotkey: HotkeyBinding = .selectAllZoomsEditorDefault
 
-    var hideBarWhileRecording: Bool = false
-    var openEditorWhenRecordingStops: Bool = true
+    var hideBarWhileRecording: Bool = HazeDefaults.Preferences.hideBarWhileRecording
+    var openEditorWhenRecordingStops: Bool = HazeDefaults.Preferences.openEditorWhenRecordingStops
 
     init() {}
 
@@ -89,7 +104,7 @@ struct AppPreferences: Codable {
         case defaultAutomaticZooms, defaultAutomaticZoomScale
         case defaultCursorScale, defaultCursorSmoothing, defaultCursorSpring
         case defaultDetectClicks, defaultDetectKeystrokes, defaultCursorClickPulse
-        case markZoomHotkey, toggleRecordHotkey, duplicateZoomEditorHotkey
+        case markZoomHotkey, toggleRecordHotkey, duplicateZoomEditorHotkey, selectAllZoomsEditorHotkey
         case hideBarWhileRecording, openEditorWhenRecordingStops
     }
 
@@ -112,15 +127,16 @@ struct AppPreferences: Codable {
         markZoomHotkey = try c.decodeIfPresent(HotkeyBinding.self, forKey: .markZoomHotkey) ?? fb.markZoomHotkey
         toggleRecordHotkey = try c.decodeIfPresent(HotkeyBinding.self, forKey: .toggleRecordHotkey) ?? fb.toggleRecordHotkey
         duplicateZoomEditorHotkey = try c.decodeIfPresent(HotkeyBinding.self, forKey: .duplicateZoomEditorHotkey) ?? fb.duplicateZoomEditorHotkey
+        selectAllZoomsEditorHotkey = try c.decodeIfPresent(HotkeyBinding.self, forKey: .selectAllZoomsEditorHotkey) ?? fb.selectAllZoomsEditorHotkey
         hideBarWhileRecording = try c.decodeIfPresent(Bool.self, forKey: .hideBarWhileRecording) ?? fb.hideBarWhileRecording
         openEditorWhenRecordingStops = try c.decodeIfPresent(Bool.self, forKey: .openEditorWhenRecordingStops) ?? fb.openEditorWhenRecordingStops
     }
 
     mutating func migrateFactoryDefaults() {
         if defaultResolutionPreset == .p1080 { defaultResolutionPreset = .native }
-        if defaultBitrateMbps == 18 { defaultBitrateMbps = 60 }
-        if defaultCursorScale == 1.0 { defaultCursorScale = 2.5 }
-        if defaultCursorSmoothing == 0.78 { defaultCursorSmoothing = 1.3 }
+        if defaultBitrateMbps == 18 { defaultBitrateMbps = HazeDefaults.Recording.bitrateMbps }
+        if defaultCursorScale == 1.0 { defaultCursorScale = HazeDefaults.Cursor.scale }
+        if defaultCursorSmoothing == 0.78 { defaultCursorSmoothing = HazeDefaults.Cursor.smoothing }
     }
 }
 

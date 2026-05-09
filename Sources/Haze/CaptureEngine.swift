@@ -898,8 +898,8 @@ final class CaptureEngine: NSObject, ObservableObject {
         // directly from A to B instead of bending along the cursor's smoothed path.
         var zooms: [ZoomKeyframe] = []
         for cluster in merged {
-            let preroll = cluster.kind == .click ? 0.62 : 0.78
-            let trailing = cluster.kind == .click ? 1.45 : 1.1
+            let preroll = cluster.kind == .click ? HazeDefaults.AutoZoom.clickPreroll : HazeDefaults.AutoZoom.dwellPreroll
+            let trailing = cluster.kind == .click ? HazeDefaults.AutoZoom.clickTrailing : HazeDefaults.AutoZoom.dwellTrailing
             var start = max(0, cluster.time - preroll)
             var endTime = cluster.endTime + trailing
 
@@ -908,7 +908,8 @@ final class CaptureEngine: NSObject, ObservableObject {
                 endTime = max(endTime, span.end + 0.6)
             }
 
-            let dur = max(cluster.kind == .click ? 1.9 : 1.6, endTime - start)
+            let minimumDuration = cluster.kind == .click ? HazeDefaults.AutoZoom.clickMinimumDuration : HazeDefaults.AutoZoom.dwellMinimumDuration
+            let dur = max(minimumDuration, endTime - start)
             if start + dur > totalDuration {
                 start = max(0, totalDuration - dur)
             }
@@ -918,12 +919,14 @@ final class CaptureEngine: NSObject, ObservableObject {
             let cy = min(max(focalCursor.y, marginY), height - marginY)
             zooms.append(ZoomKeyframe(
                 start: start,
-                duration: min(dur, max(1.5, totalDuration - start)),
+                duration: min(dur, max(0.2, totalDuration - start)),
                 scale: defaultScale,
                 centerX: cx,
                 centerY: cy,
                 easing: cluster.kind == .click ? .smooth : .gentle,
-                rampFraction: cluster.kind == .click ? 0.26 : 0.36,
+                rampFraction: cluster.kind == .click ? HazeDefaults.AutoZoom.clickRampFraction : HazeDefaults.AutoZoom.dwellRampFraction,
+                zoomInDuration: cluster.kind == .click ? HazeDefaults.AutoZoom.clickRampDuration : nil,
+                zoomOutDuration: cluster.kind == .click ? HazeDefaults.AutoZoom.clickRampDuration : nil,
                 followCursor: false,
                 followCursorSmoothing: ZoomKeyframe.defaultFollowCursorSmoothing,
                 followCursorDelay: ZoomKeyframe.defaultFollowCursorDelay
@@ -1038,8 +1041,9 @@ final class CaptureEngine: NSObject, ObservableObject {
         let marginX = width * 0.16
         let marginY = height * 0.16
         let scale = min(max(settings.automaticZoomScale, 1.15), 2.4)
-        let preroll = 0.55
-        let trailing = 1.85
+        let preroll = HazeDefaults.ManualZoom.preroll
+        let trailing = HazeDefaults.ManualZoom.trailing
+        let rampDuration = HazeDefaults.ManualZoom.rampDuration
         let zooms = times.map { mark in
             let cursor = nearestSample(to: mark, in: sortedSamples)
                 ?? CursorSample(time: mark, x: width / 2, y: height / 2)
@@ -1047,7 +1051,7 @@ final class CaptureEngine: NSObject, ObservableObject {
             let cy = min(max(cursor.y, marginY), height - marginY)
             let start = max(0, mark - preroll)
             let rawDuration = preroll + trailing
-            let dur = max(1.5, min(rawDuration, max(1.5, duration - start)))
+            let dur = min(max(HazeDefaults.ManualZoom.minimumDuration, rawDuration), max(0.2, duration - start))
             return ZoomKeyframe(
                 start: start,
                 duration: dur,
@@ -1055,7 +1059,9 @@ final class CaptureEngine: NSObject, ObservableObject {
                 centerX: cx,
                 centerY: cy,
                 easing: .smooth,
-                rampFraction: 0.26,
+                rampFraction: HazeDefaults.ManualZoom.rampFraction,
+                zoomInDuration: min(rampDuration, dur / 2),
+                zoomOutDuration: min(rampDuration, dur / 2),
                 followCursor: false,
                 followCursorSmoothing: ZoomKeyframe.defaultFollowCursorSmoothing,
                 followCursorDelay: ZoomKeyframe.defaultFollowCursorDelay
