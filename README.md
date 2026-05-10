@@ -8,13 +8,14 @@
 
 A lightweight macOS recorder built for product demos, tutorials, coding videos, and visual walkthroughs.
 
-[Features](#features) •
-[Quick Start](#quick-start) •
-[Permissions](#permissions) •
-[Project Structure](#project-structure) •
-[Roadmap](#roadmap)
+</br>
+<img width="800" height="543" alt="Demo2C" src="https://github.com/user-attachments/assets/1eac9339-76b2-4146-a5ee-64bdd454096a" />
+</br>
+<sub>*Low FPS because of GIF limitations. Haze produces high quality 60 FPS MP4 videos</sub>
+
 
 </div>
+
 
 ---
 
