@@ -66,6 +66,10 @@ thumbnails/
 *.png
 *.jpg
 *.jpeg
+!assets/
+!assets/**/*.png
+!assets/**/*.jpg
+!assets/**/*.jpeg
 
 # =========================
 # Exported media (optional)
