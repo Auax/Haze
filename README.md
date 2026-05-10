@@ -26,7 +26,7 @@ Haze is a native macOS screen recorder focused on producing clean, polished reco
 It captures your screen, tracks cursor movement, suggests automatic zooms, and renders a final video with smooth motion and cinematic presentation effects.
 
 <div align="center">
-  <img width="800" height="543" alt="Demo" src="assets/editor.png" />
+  <img width="1200" height="943" alt="Demo" src="assets/editor.png" />
   </br>
   <sub>Editor UI</sub>
 </div>
