@@ -25,9 +25,16 @@ enum HazeDefaults {
         static let recordSystemAudio = false
         /// Stored microphone device id. `nil` means use the system/default input.
         static let microphoneDeviceID: String? = nil
+        /// Floor on the editor's corner-radius slider when the source is a window capture.
+        /// The captured surface has transparent pixels outside the macOS native window corner;
+        /// values below this expose the dark canvas behind those pixels.
+        static let windowCaptureMinCornerRadius: Double = 0.03
     }
 
     enum Cursor {
+        /// Whether ScreenCaptureKit includes the system cursor in the raw recording.
+        /// Keep false when Haze should render its own smooth editable cursor overlay.
+        static let captureNativeCursor: Bool = false
         /// Cursor path smoothing strength. 0 is raw cursor data; 2 is very smooth.
         static let smoothing: Double = 1
         /// Seconds of neighboring cursor samples considered when smoothing cursor position.
@@ -156,7 +163,7 @@ enum HazeDefaults {
         /// Whether rendered exports show the cursor by default.
         static let showCursor = true
         /// Whether rendered exports show click ripple effects by default.
-        static let showClickRipples = true
+        static let showClickRipples = false
         /// Camera/cursor motion blur strength. 0 disables it.
         static let motionBlur: Double = 0
         /// How custom image backgrounds are fit into the export canvas.

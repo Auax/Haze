@@ -223,7 +223,8 @@ final class CaptureEngine: NSObject, ObservableObject {
 
         let source = selectedSource
         let filter = try makeFilter(content: content, source: source, settings: settings)
-        let outputSize = settings.outputSize(for: source)
+        let regionSourceRect = settings.captureKind == .region ? normalizedRegion(settings.region, source: source) : nil
+        let outputSize = settings.outputSize(for: source, sourceRect: regionSourceRect)
         let rawURL = Self.makeOutputURL(suffix: "raw")
 
         let config = SCStreamConfiguration()
@@ -232,7 +233,7 @@ final class CaptureEngine: NSObject, ObservableObject {
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.frameRate))
         config.queueDepth = 6
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.showsCursor = false
+        config.showsCursor = settings.captureNativeCursor
         config.capturesAudio = settings.recordSystemAudio
         config.sampleRate = 48_000
         config.channelCount = 2
@@ -244,8 +245,8 @@ final class CaptureEngine: NSObject, ObservableObject {
         config.scalesToFit = true
         config.preservesAspectRatio = true
         config.captureResolution = .best
-        if settings.captureKind == .region {
-            config.sourceRect = normalizedRegion(settings.region, source: source)
+        if let regionSourceRect {
+            config.sourceRect = regionSourceRect
         }
 
         let writer = try AVAssetWriter(outputURL: rawURL, fileType: .mov)
@@ -796,14 +797,32 @@ final class CaptureEngine: NSObject, ObservableObject {
                 width: region.width,
                 height: region.height
             )
+        } else if activeSettings.captureKind == .window, let source = activeSource {
+            // SCWindow.frame is in CG screen coords (Y-down, top-left origin of the primary display);
+            // NSEvent.mouseLocation is Cocoa Y-up. Convert before feeding into the Y-up mapping formula.
+            let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+            sourceRect = CGRect(
+                x: source.frame.minX,
+                y: primaryHeight - source.frame.maxY,
+                width: source.frame.width,
+                height: source.frame.height
+            )
         } else if let source = activeSource {
             sourceRect = source.frame
         } else {
             sourceRect = CGRect(origin: .zero, size: activeOutputSize)
         }
 
-        let x = (screenPoint.x - sourceRect.minX) / max(1, sourceRect.width) * activeOutputSize.width
-        let y = (sourceRect.maxY - screenPoint.y) / max(1, sourceRect.height) * activeOutputSize.height
+        return mapCursor(
+            screenPoint,
+            fromScreenRect: sourceRect,
+            toVideoRect: CGRect(origin: .zero, size: activeOutputSize)
+        )
+    }
+
+    private func mapCursor(_ screenPoint: CGPoint, fromScreenRect sourceRect: CGRect, toVideoRect videoRect: CGRect) -> CGPoint {
+        let x = videoRect.minX + (screenPoint.x - sourceRect.minX) / max(1, sourceRect.width) * videoRect.width
+        let y = videoRect.minY + (sourceRect.maxY - screenPoint.y) / max(1, sourceRect.height) * videoRect.height
         return CGPoint(x: min(max(0, x), activeOutputSize.width), y: min(max(0, y), activeOutputSize.height))
     }
 

@@ -116,6 +116,7 @@ struct AudioInputDevice: Identifiable, Hashable {
 
 struct RecordingSettings: Codable {
     var captureKind: CaptureKind = HazeDefaults.Recording.captureKind
+    var captureNativeCursor: Bool = HazeDefaults.Cursor.captureNativeCursor
     var resolutionPreset: ResolutionPreset = HazeDefaults.Recording.resolutionPreset
     var bitrateMbps: Double = HazeDefaults.Recording.bitrateMbps
     var frameRate: Int = HazeDefaults.Recording.frameRate
@@ -620,6 +621,14 @@ struct RecordingSession: Codable, Identifiable {
         max(0.1, timelineContentEnd - timelineContentStart)
     }
 
+    /// Editor corner-radius slider value with the window-capture floor applied. Window captures
+    /// have transparent pixels outside the macOS native corner; values below the floor would
+    /// expose them.
+    var effectiveCornerRadius: Double {
+        guard settings.captureKind == .window else { return edit.cornerRadius }
+        return max(HazeDefaults.Recording.windowCaptureMinCornerRadius, edit.cornerRadius)
+    }
+
     mutating func normalizeTimelineTrims(minVisible: Double = 0.12) {
         let d = max(0.2, approximateDuration)
         timelineTrimStart = min(max(0, timelineTrimStart), d - minVisible)
@@ -635,8 +644,14 @@ extension CGSize {
 }
 
 extension RecordingSettings {
-    func outputSize(for source: CaptureSource?) -> CGSize {
-        let native = CGSize(width: source?.width ?? Int(region.width), height: source?.height ?? Int(region.height))
+    func outputSize(for source: CaptureSource?, sourceRect: CGRect? = nil) -> CGSize {
+        let native: CGSize
+        if captureKind == .region {
+            let rect = (sourceRect ?? region).standardized
+            native = CGSize(width: max(32, rect.width), height: max(32, rect.height))
+        } else {
+            native = CGSize(width: source?.width ?? Int(region.width), height: source?.height ?? Int(region.height))
+        }
         switch resolutionPreset {
         case .native:
             return native.integralEven

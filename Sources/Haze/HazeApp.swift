@@ -173,6 +173,13 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         window.title = "Haze Editor"
         window.delegate = self
         window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(
+            calibratedRed: 0x0D / 255,
+            green: 0x0F / 255,
+            blue: 0x12 / 255,
+            alpha: 1
+        )
         window.contentMinSize = CGSize(width: 1180, height: 740)
         window.contentViewController = NSHostingController(
             rootView: EditorView()

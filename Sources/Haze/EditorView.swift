@@ -349,14 +349,14 @@ extension FocusedValues {
 private struct EditorTopBar: View {
     @EnvironmentObject var model: AppViewModel
     let session: RecordingSession
+    @State private var isEditingName = false
+    @State private var draftName = ""
+    private let maximumNameWidth: CGFloat = 300
 
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.rawVideoURL.lastPathComponent)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.frPrimaryText)
-                    .lineLimit(1)
+                editableFileName
                 HStack(spacing: 6) {
                     Text(session.rawVideoURL.deletingLastPathComponent().path(percentEncoded: false))
                         .font(.system(size: 11))
@@ -407,7 +407,10 @@ private struct EditorTopBar: View {
                 Button {
                     model.revealRenderedFile()
                 } label: {
-                    Label("Reveal in Finder", systemImage: "doc.on.doc")
+                    Label("Reveal in Finder", systemImage: "folder")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .offset(y: -1)
                 }
                 .help(rendered.lastPathComponent)
                 .buttonStyle(.bordered)
@@ -418,6 +421,9 @@ private struct EditorTopBar: View {
                 model.exportRendered()
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .offset(y: -1)
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(model.renderer.isRendering)
@@ -427,6 +433,209 @@ private struct EditorTopBar: View {
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 0)
+        .onAppear {
+            draftName = recordingDisplayName
+        }
+        .onChange(of: session.rawVideoURL) { _, newURL in
+            if !isEditingName {
+                draftName = newURL.deletingPathExtension().lastPathComponent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var editableFileName: some View {
+        if isEditingName {
+            InlineRenameTextField(
+                text: $draftName,
+                onCommit: { commitFileName($0) },
+                onCancel: { cancelFileNameEdit() }
+            )
+                .frame(width: nameWidth(for: draftName), height: 22)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.frPanel, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.frAccent.opacity(0.75), lineWidth: 1)
+                )
+        } else {
+            HStack(spacing: 6) {
+                Text(recordingDisplayName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.frPrimaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: nameWidth(for: recordingDisplayName), alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 1) {
+                        beginFileNameEdit()
+                    }
+                Button {
+                    beginFileNameEdit()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 13, weight: .black))
+                        .foregroundStyle(Color.frSecondaryText)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Rename recording")
+            }
+            .help("Click to rename")
+        }
+    }
+
+    private var recordingDisplayName: String {
+        session.rawVideoURL.deletingPathExtension().lastPathComponent
+    }
+
+    private func nameWidth(for text: String) -> CGFloat {
+        let measured = ceil((text as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold)
+        ]).width)
+        return min(maximumNameWidth, max(12, measured + 2))
+    }
+
+    private func beginFileNameEdit() {
+        draftName = recordingDisplayName
+        isEditingName = true
+    }
+
+    private func commitFileName(_ value: String? = nil) {
+        if let value {
+            draftName = value
+        }
+        let proposed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        isEditingName = false
+        guard !proposed.isEmpty, proposed != recordingDisplayName else {
+            draftName = recordingDisplayName
+            return
+        }
+        model.renameCurrentRecording(to: proposed)
+    }
+
+    private func cancelFileNameEdit() {
+        draftName = recordingDisplayName
+        isEditingName = false
+    }
+}
+
+private struct InlineRenameTextField: NSViewRepresentable {
+    @Binding var text: String
+    let onCommit: (String) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onCommit: onCommit, onCancel: onCancel)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.delegate = context.coordinator
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 13, weight: .semibold)
+        field.textColor = NSColor(calibratedRed: 0xE6 / 255, green: 0xE8 / 255, blue: 0xEB / 255, alpha: 1)
+        field.lineBreakMode = .byTruncatingTail
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        context.coordinator.attach(field)
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
+        }
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.onCommit = onCommit
+        context.coordinator.onCancel = onCancel
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+        DispatchQueue.main.async {
+            guard field.window?.firstResponder !== field.currentEditor() else { return }
+            field.window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSTextField, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        @Binding private var text: String
+        var onCommit: (String) -> Void
+        var onCancel: () -> Void
+        private weak var field: NSTextField?
+        private var mouseMonitor: Any?
+        private var didFinish = false
+
+        init(text: Binding<String>, onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+            _text = text
+            self.onCommit = onCommit
+            self.onCancel = onCancel
+        }
+
+        func attach(_ field: NSTextField) {
+            self.field = field
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self, let field = self.field, let window = field.window, event.window === window else {
+                    return event
+                }
+                let point = field.convert(event.locationInWindow, from: nil)
+                if !field.bounds.contains(point) {
+                    self.complete(commit: true)
+                }
+                return event
+            }
+        }
+
+        func detach() {
+            if let mouseMonitor {
+                NSEvent.removeMonitor(mouseMonitor)
+            }
+            mouseMonitor = nil
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            text = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            complete(commit: true)
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                complete(commit: true)
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                complete(commit: false)
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func complete(commit: Bool) {
+            guard !didFinish else { return }
+            didFinish = true
+            detach()
+            let value = field?.stringValue ?? text
+            text = value
+            if commit {
+                onCommit(value)
+            } else {
+                onCancel()
+            }
+        }
     }
 }
 
@@ -493,7 +702,7 @@ private struct EditorPreview: View {
         let availableH = max(40, size.height - pad * 2)
         let frameH = min(availableH, availableW / aspect)
         let frameW = frameH * aspect
-        let radius = videoOnly ? 0 : max(0, CGFloat(session.edit.cornerRadius)) * min(frameW, frameH) * 1.4
+        let radius = videoOnly ? 0 : max(0, CGFloat(session.effectiveCornerRadius)) * min(frameW, frameH) * 1.4
         let renderState = RenderFrameStateBuilder.make(
             timelineIndex: timelineIndex,
             outputTime: max(0, playbackTime - session.timelineContentStart),
@@ -1122,7 +1331,7 @@ private struct TimelinePanel: View {
                 splitTimelineSelection()
             }
             timelineLabelButton(
-                systemImage: "arrow.left.and.right",
+                systemImage: "arrow.right.and.line.vertical.and.arrow.left",
                 title: "Snap",
                 help: snapToPlayhead ? "Disable snapping to playhead" : "Enable snapping to playhead",
                 disabled: false,
@@ -2381,8 +2590,8 @@ private struct ZoomInspector: View {
                     Label("Add Zoom", systemImage: "plus")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.frAccent)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
                                 .stroke(Color.frAccent.opacity(0.75), lineWidth: 1)
@@ -2398,7 +2607,6 @@ private struct ZoomInspector: View {
                     description: Text("Press Z or use the timeline action row to add a zoom.")
                 )
             } else {
-                Divider()
                 if selectedZooms.count > 1 {
                     MultiZoomCard(
                         zooms: selectedZooms,
@@ -2657,11 +2865,11 @@ private struct ZoomCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(selected ? Color.frAccent.opacity(0.08) : Color.frBackground)
+                .fill(Color.white.opacity(0.04))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(selected ? Color.frAccent : Color.frBorder, lineWidth: selected ? 1.5 : 1)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
 
@@ -2791,11 +2999,11 @@ private struct MultiZoomCard: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.frBackground)
+                .fill(Color.white.opacity(0.04))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.frBorder, lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
 }
@@ -4244,21 +4452,21 @@ private struct ExportInspector: View {
                 model.endUndoTransaction()
             }
 
-            HStack {
-                Text("Frame rate").foregroundStyle(.secondary).font(.caption)
-                Spacer()
-                Text("\(session.settings.frameRate) fps")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
+            // HStack {
+            //     Text("Frame rate").foregroundStyle(.secondary).font(.caption)
+            //     Spacer()
+            //     Text("\(session.settings.frameRate) fps")
+            //         .font(.caption.monospacedDigit())
+            //         .foregroundStyle(.secondary)
+            // }
 
-            HStack {
-                Text("Format").foregroundStyle(.secondary).font(.caption)
-                Spacer()
-                Text("MP4 (H.264 High)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            // HStack {
+            //     Text("Format").foregroundStyle(.secondary).font(.caption)
+            //     Spacer()
+            //     Text("MP4 (H.264 High)")
+            //         .font(.caption)
+            //         .foregroundStyle(.secondary)
+            // }
 
             Divider()
 
@@ -4316,28 +4524,29 @@ private struct ExportInspector: View {
 
             Divider()
 
-            if renderer.isRendering {
-                VStack(alignment: .leading, spacing: 6) {
-                    ProgressView(value: renderer.progress)
-                    Text(renderer.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            // if renderer.isRendering {
+            //     VStack(alignment: .leading, spacing: 6) {
+            //         ProgressView(value: renderer.progress)
+            //         Text(renderer.status)
+            //             .font(.caption)
+            //             .foregroundStyle(.secondary)
+            //     }
+            // }
 
-            HStack(spacing: 8) {
-                Button {
-                    model.exportRendered()
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.frAccent)
-                .controlSize(.large)
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(renderer.isRendering)
-            }
+            // HStack(spacing: 8) {
+            //     Button {
+            //         model.exportRendered()
+            //     } label: {
+            //         Label("Export", systemImage: "square.and.arrow.up")
+            //             .frame(maxWidth: .infinity)
+            //             .padding(.vertical, 8)
+            //             .offset(y: -1)
+            //     }
+            //     .buttonStyle(.borderedProminent)
+            //     .tint(Color.frAccent)
+            //     .keyboardShortcut("e", modifiers: [.command, .shift])
+            //     .disabled(renderer.isRendering)
+            // }
 
             if let rendered = session.renderedVideoURL {
                 renderedFileCard(url: rendered)
@@ -4349,11 +4558,11 @@ private struct ExportInspector: View {
     @ViewBuilder
     private var summaryCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 14) {
+            HStack(spacing: 6) {
                 Stat(title: "Duration", value: timecode(session.approximateDuration))
                 Stat(title: "Resolution", value: "\(session.width)×\(session.height)")
             }
-            HStack(spacing: 14) {
+            HStack(spacing: 6) {
                 Stat(title: "Zooms", value: "\(session.zooms.count)")
                 Stat(title: "Frame rate", value: "\(session.settings.frameRate) fps")
             }
@@ -4410,7 +4619,7 @@ private struct ExportInspector: View {
                 Button {
                     model.revealRenderedFile()
                 } label: {
-                    Label("Reveal", systemImage: "doc.on.doc")
+                    Label("Reveal", systemImage: "folder")
                 }
                 .controlSize(.small)
                 Button {
@@ -4424,11 +4633,11 @@ private struct ExportInspector: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.frBackground)
+                .fill(Color.white.opacity(0.04))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.frBorder, lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
 
@@ -4454,11 +4663,11 @@ private struct Stat: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.frBackground)
+                .fill(Color.white.opacity(0.04))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.frBorder, lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
 }

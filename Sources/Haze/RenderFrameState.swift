@@ -301,8 +301,18 @@ enum RenderFrameStateBuilder {
             pulse: pulse,
             rotation: rotation,
             opacity: CGFloat(session.settings.cursorOpacity),
-            scale: CGFloat(session.settings.cursorScale) * pulse
+            scale: CGFloat(session.settings.cursorScale) * regionCursorOutputScale(for: session) * pulse
         )
+    }
+
+    private static func regionCursorOutputScale(for session: RecordingSession) -> CGFloat {
+        guard session.settings.captureKind == .region else { return 1 }
+        let region = session.settings.region.standardized
+        guard region.width > 0, region.height > 0 else { return 1 }
+
+        let scaleX = CGFloat(session.width) / max(1, region.width)
+        let scaleY = CGFloat(session.height) / max(1, region.height)
+        return min(max(1, min(scaleX, scaleY)), 3)
     }
 
     private static func visibleSourceRect(sourceSize: CGSize, cameraCenter: CGPoint, zoom: Double) -> CGRect {
@@ -404,7 +414,7 @@ enum RenderFrameStateBuilder {
             pulse: pulse,
             rotation: rotation,
             opacity: CGFloat(session.settings.cursorOpacity),
-            scale: CGFloat(session.settings.cursorScale) * pulse
+            scale: CGFloat(session.settings.cursorScale) * regionCursorOutputScale(for: session) * pulse
         )
     }
 

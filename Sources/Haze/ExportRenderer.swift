@@ -1018,7 +1018,7 @@ final class PolishPipeline {
         let frameOriginY = (Double(session.height) - frameH) / 2
         self.framedRect = CGRect(x: frameOriginX, y: frameOriginY, width: frameW, height: frameH)
         self.videoSize = framedSize
-        let cr = rendersVideoOnly ? 0 : max(0, session.edit.cornerRadius) * Double(min(session.width, session.height)) * 1.4
+        let cr = rendersVideoOnly ? 0 : max(0, session.effectiveCornerRadius) * Double(min(session.width, session.height)) * 1.4
         self.cornerRadiusPx = CGFloat(cr)
 
         backgroundImage = Self.makeBackground(

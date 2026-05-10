@@ -79,8 +79,9 @@ final class AppViewModel: ObservableObject {
                         if PreferencesStore.shared.preferences.openEditorWhenRecordingStops {
                             EditorWindowController.shared.show(model: self)
                             NotificationCenter.default.post(name: .hazeShowEditor, object: nil)
+                        } else {
+                            NotificationCenter.default.post(name: .hazeShowRecorder, object: nil)
                         }
-                        NotificationCenter.default.post(name: .hazeShowRecorder, object: nil)
                     }
                 } else {
                     try await capture.start(settings: settings)
@@ -640,6 +641,42 @@ final class AppViewModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    func renameCurrentRecording(to proposedName: String) {
+        guard var session = currentSession else { return }
+        do {
+            let rawURL = session.rawVideoURL
+            let rawDirectory = rawURL.deletingLastPathComponent()
+            let timelineURL = session.timelineURL
+            let sanitized = try sanitizedRecordingFileName(proposedName, fallbackExtension: rawURL.pathExtension)
+            let newRawURL = rawDirectory.appendingPathComponent(sanitized, isDirectory: false)
+            guard newRawURL != rawURL else { return }
+
+            let newTimelineURL = newRawURL
+                .deletingPathExtension()
+                .appendingPathExtension("haze.json")
+            try ensureRenameTargetAvailable(newRawURL, currentURL: rawURL)
+            try ensureRenameTargetAvailable(newTimelineURL, currentURL: timelineURL)
+
+            let fileManager = FileManager.default
+            try fileManager.moveItem(at: rawURL, to: newRawURL)
+            do {
+                session.rawVideoURL = newRawURL
+                session.timelineURL = newTimelineURL
+                try TimelineStore.save(session)
+                if timelineURL != newTimelineURL, fileManager.fileExists(atPath: timelineURL.path) {
+                    try? fileManager.removeItem(at: timelineURL)
+                }
+                currentSession = session
+                loadLibrary()
+            } catch {
+                try? fileManager.moveItem(at: newRawURL, to: rawURL)
+                throw error
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     // MARK: - Library
 
     func loadLibrary() {
@@ -697,5 +734,30 @@ final class AppViewModel: ObservableObject {
 
     private func nearestCursor(in session: RecordingSession, at time: Double) -> CursorSample? {
         session.cursorSamples.min { abs($0.time - time) < abs($1.time - time) }
+    }
+
+    private func sanitizedRecordingFileName(_ proposedName: String, fallbackExtension: String) throws -> String {
+        let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+        let baseName = lastComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseName.isEmpty, baseName != ".", baseName != ".." else {
+            throw RecorderError.message("Enter a valid recording file name.")
+        }
+
+        var url = URL(fileURLWithPath: baseName)
+        if url.pathExtension.isEmpty, !fallbackExtension.isEmpty {
+            url = url.appendingPathExtension(fallbackExtension)
+        }
+        guard url.pathExtension.lowercased() == fallbackExtension.lowercased() else {
+            throw RecorderError.message("Keep the recording extension as .\(fallbackExtension).")
+        }
+        return url.lastPathComponent
+    }
+
+    private func ensureRenameTargetAvailable(_ targetURL: URL, currentURL: URL) throws {
+        guard targetURL != currentURL,
+              FileManager.default.fileExists(atPath: targetURL.path)
+        else { return }
+        throw RecorderError.message("A file named \(targetURL.lastPathComponent) already exists.")
     }
 }
