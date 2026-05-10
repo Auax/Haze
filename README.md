@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/086eb139-48bb-43d4-98b2-1c74f8e93eb4" width="140" alt="Haze App Icon" />
+<img src="assets/logo.png" width="140" alt="Haze App Icon" />
 
 # Haze
 
@@ -24,6 +24,12 @@ A lightweight macOS recorder built for product demos, tutorials, coding videos, 
 Haze is a native macOS screen recorder focused on producing clean, polished recordings with minimal setup.
 
 It captures your screen, tracks cursor movement, suggests automatic zooms, and renders a final video with smooth motion and cinematic presentation effects.
+
+<div align="center">
+  <img width="800" height="543" alt="Demo" src="assets/editor.png" />
+  </br>
+  <sub>Editor UI</sub>
+</div>
 
 Built for:
 
