@@ -132,7 +132,7 @@ enum HazeDefaults {
 
     enum Easing {
         /// Ramp fraction when the user picks "Snappy" easing.
-        static let snappyRampFraction: Double = 0.18
+        static let snappyRampFraction: Double = 0.10
         /// Ramp fraction when the user picks "Smooth" easing.
         static let smoothRampFraction: Double = 0.30
         /// Ramp fraction when the user picks "Gentle" easing.
@@ -141,7 +141,7 @@ enum HazeDefaults {
         static let customRampFraction: Double = 0.30
 
         /// Cubic Bezier curve for fast zooms with a quick settle.
-        static let snappyCurve = CubicBezier(x1: 0.18, y1: 0.94, x2: 0.24, y2: 1.0)
+        static let snappyCurve = CubicBezier(x1: 0.77, y1: 0.00, x2: 0.16, y2: 1.0)
         /// Cubic Bezier curve for the standard smooth zoom feel.
         static let smoothCurve = CubicBezier(x1: 0.33, y1: 0.0, x2: 0.20, y2: 1.0)
         /// Cubic Bezier curve for slower, softer zoom motion.

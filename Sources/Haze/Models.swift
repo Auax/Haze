@@ -725,6 +725,22 @@ func cinematicZoomCameraCenter(for zoom: ZoomKeyframe, at time: Double, session:
         )
     }
 
+    let timings = zoomAnimationTimings(for: zoom)
+    let zoomInEnd = zoom.start + timings.zoomIn
+    let zoomOutStart = zoom.start + max(0, zoom.duration - timings.zoomOut)
+    let effectiveTime: Double
+    if time < zoomInEnd {
+        effectiveTime = zoomInEnd
+    } else if time > zoomOutStart {
+        effectiveTime = zoomOutStart
+    } else {
+        effectiveTime = time
+    }
+
+    return cursorFollowCameraCenter(for: zoom, at: effectiveTime, session: session)
+}
+
+private func cursorFollowCameraCenter(for zoom: ZoomKeyframe, at time: Double, session: RecordingSession) -> CGPoint {
     let screenWidth = Double(session.width)
     let screenHeight = Double(session.height)
     let startTime = max(0, zoom.start)
